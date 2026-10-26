@@ -1,0 +1,7022 @@
+#include "GUI.h"
+
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
+#include <cstdlib>
+
+using namespace std;
+
+/* =========================================================
+   GLOBAL GUI COLORS
+   ========================================================= */
+
+static COLORREF GUI_BACKGROUND = RGB(245, 248, 252);
+static COLORREF GUI_WHITE      = RGB(255, 255, 255);
+static COLORREF GUI_PRIMARY    = RGB(48, 86, 211);
+static COLORREF GUI_PRIMARY2   = RGB(74, 108, 224);
+static COLORREF GUI_GREEN      = RGB(34, 166, 120);
+static COLORREF GUI_ORANGE     = RGB(242, 153, 74);
+static COLORREF GUI_RED        = RGB(220, 80, 80);
+static COLORREF GUI_PURPLE     = RGB(126, 87, 194);
+static COLORREF GUI_TEXT       = RGB(45, 55, 72);
+static COLORREF GUI_GRAY       = RGB(110, 120, 135);
+static COLORREF GUI_LIGHTGRAY  = RGB(225, 230, 238);
+static COLORREF GUI_SIDEBAR    = RGB(250, 252, 255);
+
+
+/* =========================================================
+   GLOBAL GUI STATE
+   ========================================================= */
+
+static GUI* g_gui = NULL;
+
+static MedicineManager* g_medicineManager = NULL;
+static CustomerManager* g_customerManager = NULL;
+static BillManager* g_billManager = NULL;
+static SaleManager* g_saleManager = NULL;
+static DataManager* g_dataManager = NULL;
+
+
+/* =========================================================
+   MAIN WINDOW CONTROL IDs
+   ========================================================= */
+
+#define ID_NAV_DASHBOARD   1001
+#define ID_NAV_MEDICINE    1002
+#define ID_NAV_CUSTOMER    1003
+#define ID_NAV_BILLING     1004
+#define ID_NAV_SALES       1005
+#define ID_NAV_REPORTS     1006
+#define ID_NAV_ALERTS      1007
+#define ID_NAV_EXIT        1008
+
+#define ID_MED_ADD         1101
+#define ID_MED_UPDATE      1102
+#define ID_MED_DELETE      1103
+#define ID_MED_SEARCH      1104
+#define ID_MED_LIST        1105
+#define ID_MED_BACK        1106
+#define ID_CUST_ADD        1111
+#define ID_CUST_UPDATE     1112
+#define ID_CUST_DELETE     1113
+#define ID_CUST_SEARCH     1114
+#define ID_CUST_LIST       1115
+#define ID_CUST_BACK       1116
+
+#define ID_DASH_ADD_MED    1201
+#define ID_DASH_ADD_CUST   1202
+#define ID_DASH_NEW_BILL   1203
+#define ID_DASH_REPORT     1204
+#define ID_BILL_NEW        1301
+#define ID_BILL_HISTORY    1302
+#define ID_BILL_REFRESH    1303
+#define ID_BILL_BACK       1304
+
+
+/* =========================================================
+   GLOBAL MAIN WINDOW BUTTON HANDLES
+   ========================================================= */
+
+static HWND hNavDashboard = NULL;
+static HWND hNavMedicine  = NULL;
+static HWND hNavCustomer  = NULL;
+static HWND hNavBilling   = NULL;
+static HWND hNavSales     = NULL;
+static HWND hNavReports   = NULL;
+static HWND hNavAlerts    = NULL;
+static HWND hNavExit      = NULL;
+
+static HWND hMedAdd       = NULL;
+static HWND hMedUpdate    = NULL;
+static HWND hMedDelete    = NULL;
+static HWND hMedSearch    = NULL;
+static HWND hMedList      = NULL;
+static HWND hMedBack      = NULL;
+static HWND hCustAdd      = NULL;
+static HWND hCustUpdate   = NULL;
+static HWND hCustDelete   = NULL;
+static HWND hCustSearch   = NULL;
+static HWND hCustList     = NULL;
+static HWND hCustBack     = NULL;
+static HWND hBillNew      = NULL;
+static HWND hBillHistory  = NULL;
+static HWND hBillRefresh  = NULL;
+static HWND hBillBack     = NULL;
+
+static HWND hDashAddMed   = NULL;
+static HWND hDashAddCust  = NULL;
+static HWND hDashNewBill  = NULL;
+static HWND hDashReport   = NULL;
+
+
+/* =========================================================
+   MEDICINE FORM STATE
+   ========================================================= */
+
+enum MedicineFormMode
+{
+    MED_FORM_ADD = 1,
+    MED_FORM_UPDATE,
+    MED_FORM_DELETE,
+    MED_FORM_SEARCH
+};
+
+struct MedicineFormData
+{
+    HWND window;
+
+    HWND idEdit;
+    HWND nameEdit;
+    HWND categoryEdit;
+    HWND priceEdit;
+    HWND quantityEdit;
+    HWND expiryEdit;
+
+    HWND actionButton;
+    HWND resultLabel;
+
+    int mode;
+};
+
+static MedicineFormData g_medicineForm;
+
+
+/* =========================================================
+   FORWARD DECLARATIONS FOR STATIC HELPERS
+   ========================================================= */
+
+static LRESULT CALLBACK MedicineFormProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+);
+
+static void openMedicineForm(int mode);
+
+static void hideMainControls();
+
+static void showMainControlsForScreen(int screen);
+static HWND createMainButton(
+    HWND parent,
+    const char* text,
+    int id,
+    int x,
+    int y,
+    int width,
+    int height
+);
+
+static void setFont(
+    HWND control,
+    int size,
+    bool bold
+);
+
+static void drawText(
+    HDC dc,
+    const char* text,
+    int x,
+    int y,
+    int width,
+    int height,
+    COLORREF color,
+    int size,
+    bool bold
+);
+
+static void drawFilledRect(
+    HDC dc,
+    int left,
+    int top,
+    int right,
+    int bottom,
+    COLORREF color
+);
+
+static void drawCard(
+    HDC dc,
+    int left,
+    int top,
+    int right,
+    int bottom,
+    COLORREF color
+);
+
+
+/* =========================================================
+   CONSTRUCTOR
+   ========================================================= */
+
+GUI::GUI(
+    MedicineManager* medicineManager,
+    CustomerManager* customerManager,
+    BillManager* billManager,
+    SaleManager* saleManager,
+    DataManager* dataManager
+)
+{
+    mainWindow = NULL;
+
+    this->medicineManager = medicineManager;
+    this->customerManager = customerManager;
+    this->billManager = billManager;
+    this->saleManager = saleManager;
+    this->dataManager = dataManager;
+
+    currentScreen = 0;
+    currentBill = NULL;
+
+    g_gui = this;
+
+    g_medicineManager = medicineManager;
+    g_customerManager = customerManager;
+    g_billManager = billManager;
+    g_saleManager = saleManager;
+    g_dataManager = dataManager;
+}
+
+
+/* =========================================================
+   START GUI
+   ========================================================= */
+
+bool GUI::start()
+{
+    HINSTANCE instance = GetModuleHandleA(NULL);
+
+    WNDCLASSA windowClass;
+    ZeroMemory(&windowClass, sizeof(windowClass));
+
+    windowClass.lpfnWndProc = GUI::WindowProcedure;
+    windowClass.hInstance = instance;
+    windowClass.lpszClassName = "PharmaCareMainWindow";
+    windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+    windowClass.hbrBackground =
+        CreateSolidBrush(GUI_BACKGROUND);
+
+    if (!RegisterClassA(&windowClass))
+    {
+        DWORD errorCode = GetLastError();
+
+        if (errorCode != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            char message[200];
+
+            sprintf(
+                message,
+                "RegisterClassA failed.\nError code: %lu",
+                errorCode
+            );
+
+            MessageBoxA(
+                NULL,
+                message,
+                "PharmaCare Error",
+                MB_OK | MB_ICONERROR
+            );
+
+            return false;
+        }
+    }
+
+    mainWindow = CreateWindowExA(
+        0,
+        "PharmaCareMainWindow",
+        "PharmaCare - Pharmacy Store Management",
+        WS_OVERLAPPEDWINDOW,
+        100,
+        50,
+        1250,
+        760,
+        NULL,
+        NULL,
+        instance,
+        this
+    );
+
+    if (mainWindow == NULL)
+    {
+        DWORD errorCode = GetLastError();
+
+        char message[200];
+
+        sprintf(
+            message,
+            "CreateWindowExA failed.\nError code: %lu",
+            errorCode
+        );
+
+        MessageBoxA(
+            NULL,
+            message,
+            "PharmaCare Error",
+            MB_OK | MB_ICONERROR
+        );
+
+        return false;
+    }
+
+    ShowWindow(mainWindow, SW_SHOW);
+    UpdateWindow(mainWindow);
+
+    MSG message;
+
+    while (GetMessageA(&message, NULL, 0, 0) > 0)
+    {
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
+    }
+
+    return true;
+}
+/* =========================================================
+   WINDOW PROCEDURE
+   ========================================================= */
+
+LRESULT CALLBACK GUI::WindowProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    GUI* gui = NULL;
+
+    if (message == WM_NCCREATE)
+    {
+        CREATESTRUCTA* createData =
+            reinterpret_cast<CREATESTRUCTA*>(lParam);
+
+            gui =
+            reinterpret_cast<GUI*>(createData->lpCreateParams);
+
+        if (gui != NULL)
+        {
+            gui->mainWindow = window;
+        }
+
+        SetWindowLongPtrA(
+            window,
+            GWLP_USERDATA,
+            reinterpret_cast<LONG_PTR>(gui)
+        );
+    }
+    else
+    {
+        gui =
+            reinterpret_cast<GUI*>(
+                GetWindowLongPtrA(window, GWLP_USERDATA)
+            );
+    }
+
+    if (gui != NULL)
+    {
+        return gui->handleMessage(
+            message,
+            wParam,
+            lParam
+        );
+    }
+
+    return DefWindowProcA(
+        window,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+/* =========================================================
+   MAIN WINDOW MESSAGE HANDLER
+   ========================================================= */
+
+LRESULT GUI::handleMessage(
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    switch (message)
+    {
+        case WM_CREATE:
+        {
+            createNavigation();
+            createDashboard();
+
+            showMainControlsForScreen(currentScreen);
+
+            return 0;
+        }
+
+
+        case WM_COMMAND:
+        {
+            int controlID = LOWORD(wParam);
+
+            switch (controlID)
+            {
+                /* ---------------- DASHBOARD ---------------- */
+
+                case ID_NAV_DASHBOARD:
+                    currentScreen = 0;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+
+                /* ---------------- MEDICINE ---------------- */
+
+                case ID_NAV_MEDICINE:
+                    currentScreen = 1;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+                case ID_MED_ADD:
+                    addMedicineWindow();
+                    return 0;
+
+                case ID_MED_UPDATE:
+                    updateMedicineWindow();
+                    return 0;
+
+                case ID_MED_DELETE:
+                    deleteMedicineWindow();
+                    return 0;
+
+                case ID_MED_SEARCH:
+                    searchMedicineWindow();
+                    return 0;
+
+                case ID_MED_LIST:
+                    currentScreen = 1;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+                case ID_MED_BACK:
+                    currentScreen = 0;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+
+                /* ---------------- CUSTOMER ---------------- */
+
+                case ID_NAV_CUSTOMER:
+                    currentScreen = 2;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+                case ID_CUST_ADD:
+                    addCustomerWindow();
+                    return 0;
+
+                case ID_CUST_UPDATE:
+                    updateCustomerWindow();
+                    return 0;
+
+                case ID_CUST_DELETE:
+                    deleteCustomerWindow();
+                    return 0;
+
+                case ID_CUST_SEARCH:
+                    searchCustomerWindow();
+                    return 0;
+
+                case ID_CUST_LIST:
+                    currentScreen = 2;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+                case ID_CUST_BACK:
+                    currentScreen = 0;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;    
+
+
+                /* ---------------- BILLING ---------------- */
+
+                case ID_NAV_BILLING:
+                    currentScreen = 3;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+                case ID_BILL_NEW:
+                    createNewBill();
+                    return 0;
+
+                case ID_BILL_HISTORY:
+                    showSalesHistory();
+                    return 0;
+
+                case ID_BILL_REFRESH:
+                    currentScreen = 3;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+                case ID_BILL_BACK:
+                    currentScreen = 0;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;    
+
+
+                /* ---------------- SALES ---------------- */
+
+                case ID_NAV_SALES:
+                    currentScreen = 4;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+
+                /* ---------------- REPORTS ---------------- */
+
+                case ID_NAV_REPORTS:
+                    currentScreen = 5;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+
+                /* ---------------- ALERTS ---------------- */
+
+                case ID_NAV_ALERTS:
+                    currentScreen = 6;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+
+
+                /* ---------------- EXIT ---------------- */
+
+                case ID_NAV_EXIT:
+                    saveData();
+                    DestroyWindow(mainWindow);
+                    return 0;
+
+
+                /* ---------------- DASHBOARD QUICK ACTIONS ---------------- */
+
+                case ID_DASH_ADD_MED:
+                    addMedicineWindow();
+                    return 0;
+
+                case ID_DASH_ADD_CUST:
+                    addCustomerWindow();
+                    return 0;
+
+                case ID_DASH_NEW_BILL:
+                    createNewBill();
+                    return 0;
+
+                case ID_DASH_REPORT:
+                    currentScreen = 5;
+                    showMainControlsForScreen(currentScreen);
+                    InvalidateRect(mainWindow, NULL, TRUE);
+                    return 0;
+            }
+
+            break;
+        }
+
+
+        case WM_PAINT:
+        {
+            PAINTSTRUCT paintStruct;
+
+            HDC deviceContext =
+                BeginPaint(mainWindow, &paintStruct);
+
+            drawInterface(deviceContext);
+
+            EndPaint(mainWindow, &paintStruct);
+
+            return 0;
+        }
+
+
+        case WM_ERASEBKGND:
+            return 1;
+
+
+        case WM_DESTROY:
+        {
+            saveData();
+
+            PostQuitMessage(0);
+
+            return 0;
+        }
+    }
+
+    return DefWindowProcA(
+        mainWindow,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+/* =========================================================
+   CREATE NAVIGATION
+   ========================================================= */
+
+void GUI::createNavigation()
+{
+    hNavDashboard = createMainButton(
+        mainWindow,
+        "Dashboard",
+        ID_NAV_DASHBOARD,
+        20,
+        110,
+        190,
+        42
+    );
+
+    hNavMedicine = createMainButton(
+        mainWindow,
+        "Medicines",
+        ID_NAV_MEDICINE,
+        20,
+        160,
+        190,
+        42
+    );
+
+    hNavCustomer = createMainButton(
+        mainWindow,
+        "Customers",
+        ID_NAV_CUSTOMER,
+        20,
+        210,
+        190,
+        42
+    );
+
+    hNavBilling = createMainButton(
+        mainWindow,
+        "Billing",
+        ID_NAV_BILLING,
+        20,
+        260,
+        190,
+        42
+    );
+
+    hNavSales = createMainButton(
+        mainWindow,
+        "Sales",
+        ID_NAV_SALES,
+        20,
+        310,
+        190,
+        42
+    );
+
+    hNavReports = createMainButton(
+        mainWindow,
+        "Reports",
+        ID_NAV_REPORTS,
+        20,
+        360,
+        190,
+        42
+    );
+
+    hNavAlerts = createMainButton(
+        mainWindow,
+        "Alerts",
+        ID_NAV_ALERTS,
+        20,
+        410,
+        190,
+        42
+    );
+
+    hNavExit = createMainButton(
+        mainWindow,
+        "Save && Exit",
+        ID_NAV_EXIT,
+        20,
+        630,
+        190,
+        42
+    );
+
+
+    /* Medicine action buttons */
+
+    hMedAdd = createMainButton(
+        mainWindow,
+        "Add Medicine",
+        ID_MED_ADD,
+        250,
+        125,
+        145,
+        40
+    );
+
+    hMedUpdate = createMainButton(
+        mainWindow,
+        "Update",
+        ID_MED_UPDATE,
+        405,
+        125,
+        125,
+        40
+    );
+
+    hMedDelete = createMainButton(
+        mainWindow,
+        "Delete",
+        ID_MED_DELETE,
+        540,
+        125,
+        125,
+        40
+    );
+
+    hMedSearch = createMainButton(
+        mainWindow,
+        "Search",
+        ID_MED_SEARCH,
+        675,
+        125,
+        125,
+        40
+    );
+
+    hMedList = createMainButton(
+        mainWindow,
+        "Refresh List",
+        ID_MED_LIST,
+        810,
+        125,
+        125,
+        40
+    );
+
+    hMedBack = createMainButton(
+        mainWindow,
+        "Back",
+        ID_MED_BACK,
+        945,
+        125,
+        100,
+        40
+    );
+    /* Customer action buttons */
+
+    hCustAdd = createMainButton(
+        mainWindow,
+        "Add Customer",
+        ID_CUST_ADD,
+        250,
+        125,
+        145,
+        40
+    );
+
+    hCustUpdate = createMainButton(
+        mainWindow,
+        "Update",
+        ID_CUST_UPDATE,
+        405,
+        125,
+        125,
+        40
+    );
+
+    hCustDelete = createMainButton(
+        mainWindow,
+        "Delete",
+        ID_CUST_DELETE,
+        540,
+        125,
+        125,
+        40
+    );
+
+    hCustSearch = createMainButton(
+        mainWindow,
+        "Search",
+        ID_CUST_SEARCH,
+        675,
+        125,
+        125,
+        40
+    );
+
+    hCustList = createMainButton(
+        mainWindow,
+        "Refresh List",
+        ID_CUST_LIST,
+        810,
+        125,
+        125,
+        40
+    );
+
+    hCustBack = createMainButton(
+        mainWindow,
+        "Back",
+        ID_CUST_BACK,
+        945,
+        125,
+        100,
+        40
+    );
+    /* Billing action buttons */
+
+hBillNew = createMainButton(
+    mainWindow,
+    "New Bill",
+    ID_BILL_NEW,
+    250,
+    125,
+    145,
+    40
+);
+
+hBillHistory = createMainButton(
+    mainWindow,
+    "Bill History",
+    ID_BILL_HISTORY,
+    405,
+    125,
+    145,
+    40
+);
+
+hBillRefresh = createMainButton(
+    mainWindow,
+    "Refresh",
+    ID_BILL_REFRESH,
+    560,
+    125,
+    125,
+    40
+);
+
+hBillBack = createMainButton(
+    mainWindow,
+    "Back",
+    ID_BILL_BACK,
+    695,
+    125,
+    100,
+    40
+);
+}
+
+
+/* =========================================================
+   CREATE DASHBOARD QUICK ACTIONS
+   ========================================================= */
+
+void GUI::createDashboard()
+{
+    hDashAddMed = createMainButton(
+        mainWindow,
+        "Add Medicine",
+        ID_DASH_ADD_MED,
+        250,
+        560,
+        180,
+        45
+    );
+
+    hDashAddCust = createMainButton(
+        mainWindow,
+        "Add Customer",
+        ID_DASH_ADD_CUST,
+        450,
+        560,
+        180,
+        45
+    );
+
+    hDashNewBill = createMainButton(
+        mainWindow,
+        "Create New Bill",
+        ID_DASH_NEW_BILL,
+        650,
+        560,
+        180,
+        45
+    );
+
+    hDashReport = createMainButton(
+        mainWindow,
+        "View Reports",
+        ID_DASH_REPORT,
+        850,
+        560,
+        180,
+        45
+    );
+}
+
+
+/* =========================================================
+   CREATE MAIN BUTTON
+   ========================================================= */
+
+static HWND createMainButton(
+    HWND parent,
+    const char* text,
+    int id,
+    int x,
+    int y,
+    int width,
+    int height
+)
+{
+    HWND button = CreateWindowExA(
+        0,
+        "BUTTON",
+        text,
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        x,
+        y,
+        width,
+        height,
+        parent,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        GetModuleHandleA(NULL),
+        NULL
+    );
+
+    if (button != NULL)
+    {
+        setFont(
+            button,
+            10,
+            true
+        );
+    }
+
+    return button;
+}
+
+
+/* =========================================================
+   SET CONTROL FONT
+   ========================================================= */
+
+static void setFont(
+    HWND control,
+    int size,
+    bool bold
+)
+{
+    HFONT font = CreateFontA(
+        -size,
+        0,
+        0,
+        0,
+        bold ? FW_BOLD : FW_NORMAL,
+        FALSE,
+        FALSE,
+        FALSE,
+        ANSI_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_SWISS,
+        "Segoe UI"
+    );
+
+    SendMessageA(
+        control,
+        WM_SETFONT,
+        reinterpret_cast<WPARAM>(font),
+        TRUE
+    );
+}
+
+
+/* =========================================================
+   HIDE MAIN CONTROLS
+   ========================================================= */
+
+static void hideMainControls()
+{
+    HWND controls[] =
+    {
+        hNavDashboard,
+        hNavMedicine,
+        hNavCustomer,
+        hNavBilling,
+        hNavSales,
+        hNavReports,
+        hNavAlerts,
+        hNavExit,
+
+        hMedAdd,
+        hMedUpdate,
+        hMedDelete,
+        hMedSearch,
+        hMedList,
+        hMedBack,
+        hCustAdd,
+        hCustUpdate,
+        hCustDelete,
+        hCustSearch,
+        hCustList,
+        hCustBack,
+        hBillNew,
+        hBillHistory,
+        hBillRefresh,
+        hBillBack,
+
+        hDashAddMed,
+        hDashAddCust,
+        hDashNewBill,
+        hDashReport
+    };
+
+    int count =
+        sizeof(controls) / sizeof(controls[0]);
+
+    for (int i = 0; i < count; i++)
+    {
+        if (controls[i] != NULL)
+        {
+            ShowWindow(
+                controls[i],
+                SW_HIDE
+            );
+        }
+    }
+}
+
+
+/* =========================================================
+   SHOW CONTROLS ACCORDING TO CURRENT SCREEN
+   ========================================================= */
+
+static void showMainControlsForScreen(int screen)
+{
+    hideMainControls();
+
+    /* Navigation is always visible */
+
+    HWND navigation[] =
+    {
+        hNavDashboard,
+        hNavMedicine,
+        hNavCustomer,
+        hNavBilling,
+        hNavSales,
+        hNavReports,
+        hNavAlerts,
+        hNavExit
+    };
+
+    int navigationCount =
+        sizeof(navigation) /
+        sizeof(navigation[0]);
+
+    for (int i = 0; i < navigationCount; i++)
+    {
+        if (navigation[i] != NULL)
+        {
+            ShowWindow(
+                navigation[i],
+                SW_SHOW
+            );
+        }
+    }
+
+
+    /* Dashboard */
+
+    if (screen == 0)
+    {
+        ShowWindow(
+            hDashAddMed,
+            SW_SHOW
+        );
+
+        ShowWindow(
+            hDashAddCust,
+            SW_SHOW
+        );
+
+        ShowWindow(
+            hDashNewBill,
+            SW_SHOW
+        );
+
+        ShowWindow(
+            hDashReport,
+            SW_SHOW
+        );
+    }
+
+
+    /* Medicine */
+
+    if (screen == 1)
+    {
+        ShowWindow(hMedAdd, SW_SHOW);
+        ShowWindow(hMedUpdate, SW_SHOW);
+        ShowWindow(hMedDelete, SW_SHOW);
+        ShowWindow(hMedSearch, SW_SHOW);
+        ShowWindow(hMedList, SW_SHOW);
+        ShowWindow(hMedBack, SW_SHOW);
+    }
+    /* Customer */
+
+    if (screen == 2)
+    {
+        ShowWindow(hCustAdd, SW_SHOW);
+        ShowWindow(hCustUpdate, SW_SHOW);
+        ShowWindow(hCustDelete, SW_SHOW);
+        ShowWindow(hCustSearch, SW_SHOW);
+        ShowWindow(hCustList, SW_SHOW);
+        ShowWindow(hCustBack, SW_SHOW);
+    }
+    if (screen == 3)
+{
+    ShowWindow(hBillNew, SW_SHOW);
+    ShowWindow(hBillHistory, SW_SHOW);
+    ShowWindow(hBillRefresh, SW_SHOW);
+    ShowWindow(hBillBack, SW_SHOW);
+}
+}
+
+
+/* =========================================================
+   DRAW INTERFACE
+   ========================================================= */
+
+void GUI::drawInterface(HDC deviceContext)
+{
+    RECT clientRect;
+
+    GetClientRect(
+        mainWindow,
+        &clientRect
+    );
+
+    drawFilledRect(
+        deviceContext,
+        0,
+        0,
+        clientRect.right,
+        clientRect.bottom,
+        GUI_BACKGROUND
+    );
+
+
+    /* Sidebar */
+
+    drawFilledRect(
+        deviceContext,
+        0,
+        0,
+        230,
+        clientRect.bottom,
+        GUI_SIDEBAR
+    );
+
+
+    /* Sidebar top brand area */
+
+    drawFilledRect(
+        deviceContext,
+        0,
+        0,
+        230,
+        85,
+        GUI_PRIMARY
+    );
+
+    drawText(
+        deviceContext,
+        "PharmaCare",
+        20,
+        18,
+        190,
+        30,
+        GUI_WHITE,
+        22,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Pharmacy Management",
+        20,
+        50,
+        190,
+        22,
+        RGB(220, 230, 255),
+        10,
+        false
+    );
+
+
+    /* Main title */
+
+    if (currentScreen == 2 || currentScreen == 3)
+{
+    drawText(
+        deviceContext,
+        "PharmaCare Pharmacy Store Management",
+        250,
+        35,
+        850,
+        40,
+        GUI_TEXT,
+        24,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Billing",
+        250,
+        80,
+        500,
+        35,
+        RGB(35, 45, 65),
+        20,
+        true
+    );
+}
+else
+{
+    drawText(
+        deviceContext,
+        "PharmaCare Pharmacy Store",
+        250,
+        35,
+        700,
+        40,
+        GUI_TEXT,
+        24,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Professional medicine, customer and billing management",
+        250,
+        72,
+        750,
+        25,
+        GUI_GRAY,
+        11,
+        false
+    );
+}
+    switch (currentScreen)
+    {
+        case 0:
+            drawDashboard(deviceContext);
+            break;
+
+        case 1:
+            drawMedicineScreen(deviceContext);
+            break;
+
+        case 2:
+            drawCustomerScreen(deviceContext);
+            break;
+
+        case 3:
+            drawBillingScreen(deviceContext);
+            break;
+
+        case 4:
+            drawSalesScreen(deviceContext);
+            break;
+
+        case 5:
+            drawReportsScreen(deviceContext);
+            break;
+
+        case 6:
+            drawAlerts(deviceContext);
+            break;
+
+        default:
+            drawDashboard(deviceContext);
+            break;
+    }
+}
+
+
+/* =========================================================
+   DRAW DASHBOARD
+   ========================================================= */
+
+void GUI::drawDashboard(HDC deviceContext)
+{
+    int medicineCount = 0;
+    int customerCount = 0;
+    int salesCount = 0;
+    double income = 0.0;
+    int lowStock = 0;
+    int expiryAlerts = 0;
+
+    if (medicineManager != NULL)
+    {
+        medicineCount =
+            medicineManager->getCount();
+
+        lowStock =
+            medicineManager->countLowStock(10);
+
+        expiryAlerts =
+            medicineManager->countExpiredOrNearExpiry();
+    }
+
+    if (customerManager != NULL)
+    {
+        customerCount =
+            customerManager->getCount();
+    }
+
+    if (saleManager != NULL)
+    {
+        salesCount =
+            saleManager->getCount();
+
+        income =
+            saleManager->calculateTotalIncome();
+    }
+
+
+    /* Dashboard subtitle */
+
+    drawText(
+        deviceContext,
+        "Overview",
+        250,
+        115,
+        250,
+        30,
+        GUI_TEXT,
+        16,
+        true
+    );
+
+
+    /* ---------------- CARD 1 ---------------- */
+
+    drawCard(
+        deviceContext,
+        250,
+        155,
+        475,
+        275,
+        GUI_WHITE
+    );
+
+    drawText(
+        deviceContext,
+        "TOTAL MEDICINES",
+        275,
+        180,
+        180,
+        25,
+        GUI_GRAY,
+        10,
+        true
+    );
+
+    {
+        stringstream ss;
+        ss << medicineCount;
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            275,
+            215,
+            170,
+            45,
+            GUI_PRIMARY,
+            30,
+            true
+        );
+    }
+
+    drawText(
+        deviceContext,
+        "Items in inventory",
+        275,
+        255,
+        170,
+        22,
+        GUI_GRAY,
+        10,
+        false
+    );
+
+
+    /* ---------------- CARD 2 ---------------- */
+
+    drawCard(
+        deviceContext,
+        500,
+        155,
+        725,
+        275,
+        GUI_WHITE
+    );
+
+    drawText(
+        deviceContext,
+        "TOTAL CUSTOMERS",
+        525,
+        180,
+        180,
+        25,
+        GUI_GRAY,
+        10,
+        true
+    );
+
+    {
+        stringstream ss;
+        ss << customerCount;
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            525,
+            215,
+            170,
+            45,
+            GUI_PURPLE,
+            30,
+            true
+        );
+    }
+
+    drawText(
+        deviceContext,
+        "Registered customers",
+        525,
+        255,
+        190,
+        22,
+        GUI_GRAY,
+        10,
+        false
+    );
+
+
+    /* ---------------- CARD 3 ---------------- */
+
+    drawCard(
+        deviceContext,
+        250,
+        295,
+        475,
+        415,
+        GUI_WHITE
+    );
+
+    drawText(
+        deviceContext,
+        "TOTAL SALES",
+        275,
+        320,
+        180,
+        25,
+        GUI_GRAY,
+        10,
+        true
+    );
+
+    {
+        stringstream ss;
+        ss << salesCount;
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            275,
+            355,
+            170,
+            45,
+            GUI_GREEN,
+            30,
+            true
+        );
+    }
+
+    drawText(
+        deviceContext,
+        "Completed transactions",
+        275,
+        395,
+        190,
+        22,
+        GUI_GRAY,
+        10,
+        false
+    );
+
+
+    /* ---------------- CARD 4 ---------------- */
+
+    drawCard(
+        deviceContext,
+        500,
+        295,
+        725,
+        415,
+        GUI_WHITE
+    );
+
+    drawText(
+        deviceContext,
+        "TOTAL INCOME",
+        525,
+        320,
+        180,
+        25,
+        GUI_GRAY,
+        10,
+        true
+    );
+
+    {
+        stringstream ss;
+
+        ss << fixed
+           << setprecision(2)
+           << "Rs. "
+           << income;
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            525,
+            355,
+            190,
+            45,
+            GUI_ORANGE,
+            22,
+            true
+        );
+    }
+
+    drawText(
+        deviceContext,
+        "Overall sales income",
+        525,
+        395,
+        190,
+        22,
+        GUI_GRAY,
+        10,
+        false
+    );
+
+
+    /* ---------------- ALERT SUMMARY ---------------- */
+
+    drawCard(
+        deviceContext,
+        750,
+        155,
+        1225,
+        415,
+        GUI_WHITE
+    );
+
+    drawText(
+        deviceContext,
+        "Inventory Alerts",
+        780,
+        180,
+        250,
+        30,
+        GUI_TEXT,
+        17,
+        true
+    );
+
+
+    drawFilledRect(
+        deviceContext,
+        780,
+        230,
+        1195,
+        295,
+        RGB(255, 247, 235)
+    );
+
+    drawText(
+        deviceContext,
+        "Low Stock",
+        805,
+        245,
+        200,
+        25,
+        GUI_ORANGE,
+        12,
+        true
+    );
+
+    {
+        stringstream ss;
+        ss << lowStock << " medicine(s)";
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            1030,
+            245,
+            150,
+            25,
+            GUI_TEXT,
+            11,
+            true
+        );
+    }
+
+
+    drawFilledRect(
+        deviceContext,
+        780,
+        315,
+        1195,
+        380,
+        RGB(255, 240, 240)
+    );
+
+    drawText(
+        deviceContext,
+        "Expiry Alerts",
+        805,
+        330,
+        200,
+        25,
+        GUI_RED,
+        12,
+        true
+    );
+
+    {
+        stringstream ss;
+        ss << expiryAlerts << " medicine(s)";
+
+        drawText(
+            deviceContext,
+            ss.str().c_str(),
+            1030,
+            330,
+            150,
+            25,
+            GUI_TEXT,
+            11,
+            true
+        );
+    }
+
+
+    /* Quick action heading */
+
+    drawText(
+        deviceContext,
+        "Quick Actions",
+        250,
+        505,
+        250,
+        30,
+        GUI_TEXT,
+        16,
+        true
+    );
+}
+
+
+/* =========================================================
+   DRAW MEDICINE SCREEN
+   ========================================================= */
+
+void GUI::drawMedicineScreen(HDC deviceContext)
+{
+    drawText(
+        deviceContext,
+        "Medicine Management",
+        250,
+        175,
+        400,
+        35,
+        GUI_TEXT,
+        20,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Manage medicines, stock quantity, pricing and expiry dates.",
+        250,
+        208,
+        650,
+        25,
+        GUI_GRAY,
+        11,
+        false
+    );
+
+
+    /* Table header */
+
+    int tableLeft = 250;
+    int tableTop = 255;
+
+    int colID = 70;
+    int colName = 180;
+    int colCategory = 150;
+    int colPrice = 110;
+    int colQuantity = 110;
+    int colExpiry = 140;
+
+    int totalWidth =
+        colID +
+        colName +
+        colCategory +
+        colPrice +
+        colQuantity +
+        colExpiry;
+
+
+    drawFilledRect(
+        deviceContext,
+        tableLeft,
+        tableTop,
+        tableLeft + totalWidth,
+        tableTop + 42,
+        GUI_PRIMARY
+    );
+
+
+    drawText(
+        deviceContext,
+        "ID",
+        tableLeft + 10,
+        tableTop + 10,
+        colID - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Medicine Name",
+        tableLeft + colID + 10,
+        tableTop + 10,
+        colName - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Category",
+        tableLeft + colID + colName + 10,
+        tableTop + 10,
+        colCategory - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Price",
+        tableLeft + colID + colName + colCategory + 10,
+        tableTop + 10,
+        colPrice - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Quantity",
+        tableLeft +
+        colID +
+        colName +
+        colCategory +
+        colPrice +
+        10,
+        tableTop + 10,
+        colQuantity - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Expiry Date",
+        tableLeft +
+        colID +
+        colName +
+        colCategory +
+        colPrice +
+        colQuantity +
+        10,
+        tableTop + 10,
+        colExpiry - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    /* Table rows */
+
+    if (medicineManager == NULL)
+    {
+        return;
+    }
+
+    int rowTop = tableTop + 42;
+
+    for (int i = 0;
+         i < medicineManager->getCount() && i < 12;
+         i++)
+    {
+        Medicine* medicine =
+            medicineManager->getMedicineAt(i);
+
+        if (medicine == NULL)
+        {
+            continue;
+        }
+
+        COLORREF rowColor =
+            (i % 2 == 0)
+            ? GUI_WHITE
+            : RGB(248, 250, 253);
+
+        drawFilledRect(
+            deviceContext,
+            tableLeft,
+            rowTop,
+            tableLeft + totalWidth,
+            rowTop + 38,
+            rowColor
+        );
+
+
+        stringstream id;
+        id << medicine->getMedicineID();
+
+        stringstream price;
+        price << fixed
+              << setprecision(2)
+              << medicine->getPrice();
+
+        stringstream quantity;
+        quantity << medicine->getQuantity();
+
+
+        drawText(
+            deviceContext,
+            id.str().c_str(),
+            tableLeft + 10,
+            rowTop + 8,
+            colID - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            medicine->getName().c_str(),
+            tableLeft + colID + 10,
+            rowTop + 8,
+            colName - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            medicine->getCategory().c_str(),
+            tableLeft + colID + colName + 10,
+            rowTop + 8,
+            colCategory - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            price.str().c_str(),
+            tableLeft +
+            colID +
+            colName +
+            colCategory +
+            10,
+            rowTop + 8,
+            colPrice - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            quantity.str().c_str(),
+            tableLeft +
+            colID +
+            colName +
+            colCategory +
+            colPrice +
+            10,
+            rowTop + 8,
+            colQuantity - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            medicine->getExpiryDate().c_str(),
+            tableLeft +
+            colID +
+            colName +
+            colCategory +
+            colPrice +
+            colQuantity +
+            10,
+            rowTop + 8,
+            colExpiry - 15,
+            22,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+
+        rowTop += 38;
+    }
+}
+
+
+/* =========================================================
+   DRAW CUSTOMER SCREEN
+   ========================================================= */
+
+void GUI::drawCustomerScreen(HDC deviceContext)
+{
+    
+    int x = 270;
+    int y = 205;
+
+    // Table header
+    HBRUSH headerBrush =
+        CreateSolidBrush(RGB(70, 90, 150));
+
+    RECT headerRect =
+    {
+        x,
+        y,
+        1150,
+        y + 48
+    };
+
+    FillRect(
+        deviceContext,
+        &headerRect,
+        headerBrush
+    );
+
+    DeleteObject(headerBrush);
+
+    drawText(
+        deviceContext,
+        "Customer ID",
+        x + 15,
+        y + 10,
+        110,
+        30,
+        RGB(255, 255, 255),
+        12,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Name",
+        x + 145,
+        y + 10,
+        180,
+        30,
+        RGB(255, 255, 255),
+        15,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Phone",
+        x + 365,
+        y + 10,
+        140,
+        30,
+        RGB(255, 255, 255),
+        15,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Address",
+        x + 535,
+        y + 10,
+        300,
+        30,
+        RGB(255, 255, 255),
+        15,
+        true
+    );
+
+    int rowY = y + 48;
+
+    for (
+        int i = 0;
+        i < customerManager->getCount() && i < 10;
+        i++
+    )
+    {
+        Customer* customer =
+            customerManager->getCustomerAt(i);
+
+        if (customer == NULL)
+            continue;
+
+        COLORREF rowColor;
+
+        if (i % 2 == 0)
+            rowColor = RGB(248, 250, 253);
+        else
+            rowColor = RGB(238, 243, 250);
+
+        HBRUSH rowBrush =
+            CreateSolidBrush(rowColor);
+
+        RECT rowRect =
+        {
+            x,
+            rowY,
+            1150,
+            rowY + 40
+        };
+
+        FillRect(
+            deviceContext,
+            &rowRect,
+            rowBrush
+        );
+
+        DeleteObject(rowBrush);
+
+        string customerID =
+            to_string(customer->getCustomerID());
+
+        string name =
+            customer->getName();
+
+        string phone =
+            customer->getPhone();
+
+        string address =
+            customer->getAddress();
+
+        drawText(
+            deviceContext,
+            customerID.c_str(),
+            x + 15,
+            rowY + 10,
+            110,
+            30,
+            RGB(45, 55, 70),
+            11,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            name.c_str(),
+            x + 145,
+            rowY + 10,
+            180,
+            30,
+            RGB(45, 55, 70),
+            11,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            phone.c_str(),
+            x + 365,
+            rowY + 10,
+            140,
+            30,
+            RGB(45, 55, 70),
+            11,
+            false
+        );
+
+        drawText(
+            deviceContext,
+            address.c_str(),
+            x + 535,
+            rowY + 10,
+            300,
+            30,
+            RGB(45, 55, 70),
+            11,
+            false
+        );
+
+        rowY += 40;
+    }
+
+    // Table border
+    HPEN borderPen =
+        CreatePen(
+            PS_SOLID,
+            1,
+            RGB(215, 220, 230)
+        );
+
+    HPEN oldPen =
+        (HPEN)SelectObject(
+            deviceContext,
+            borderPen
+        );
+
+    HBRUSH oldBrush =
+        (HBRUSH)SelectObject(
+            deviceContext,
+            GetStockObject(NULL_BRUSH)
+        );
+
+    Rectangle(
+        deviceContext,
+        x,
+        y,
+        1150,
+        rowY
+    );
+
+    SelectObject(
+        deviceContext,
+        oldBrush
+    );
+
+    SelectObject(
+        deviceContext,
+        oldPen
+    );
+
+    DeleteObject(borderPen);
+
+    if (customerManager->getCount() == 0)
+    {
+        drawText(
+            deviceContext,
+            "No customers found.",
+            500,
+            390,
+            300,
+            35,
+            RGB(120, 130, 145),
+            18,
+            false
+        );
+    }
+}
+
+/* =========================================================
+   DRAW BILLING SCREEN
+   ========================================================= */
+
+void GUI::drawBillingScreen(HDC deviceContext)
+{
+    
+    // Summary cards
+    int cardY = 190;
+
+    // Bill number card
+    HBRUSH blueBrush =
+        CreateSolidBrush(RGB(232, 240, 255));
+
+    RECT billCard =
+    {
+        270,
+        cardY,
+        540,
+        cardY + 105
+    };
+
+    FillRect(
+        deviceContext,
+        &billCard,
+        blueBrush
+    );
+
+    DeleteObject(blueBrush);
+
+    drawText(
+        deviceContext,
+        "NEXT BILL NUMBER",
+        290,
+        cardY + 18,
+        220,
+        25,
+        RGB(80, 95, 120),
+        13,
+        true
+    );
+
+    string nextBill =
+        to_string(billManager->getNextBillNumber());
+
+    drawText(
+        deviceContext,
+        nextBill.c_str(),
+        290,
+        cardY + 48,
+        200,
+        40,
+        RGB(45, 75, 150),
+        20,
+        true
+    );
+
+    // Total bills card
+    HBRUSH greenBrush =
+        CreateSolidBrush(RGB(232, 249, 240));
+
+    RECT totalCard =
+    {
+        560,
+        cardY,
+        830,
+        cardY + 105
+    };
+
+    FillRect(
+        deviceContext,
+        &totalCard,
+        greenBrush
+    );
+
+    DeleteObject(greenBrush);
+
+    drawText(
+        deviceContext,
+        "TOTAL BILLS",
+        580,
+        cardY + 18,
+        200,
+        25,
+        RGB(80, 105, 90),
+        13,
+        true
+    );
+
+    string totalBills =
+        to_string(billManager->getCount());
+
+    drawText(
+        deviceContext,
+        totalBills.c_str(),
+        580,
+        cardY + 48,
+        200,
+        40,
+        RGB(40, 130, 80),
+        20,
+        true
+    );
+
+    
+}
+/* =========================================================
+   DRAW SALES SCREEN
+   ========================================================= */
+
+void GUI::drawSalesScreen(HDC deviceContext)
+{
+    drawText(
+        deviceContext,
+        "Sales Management",
+        250,
+        175,
+        400,
+        35,
+        GUI_TEXT,
+        20,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "View complete sales history and daily sales information.",
+        250,
+        210,
+        700,
+        25,
+        GUI_GRAY,
+        11,
+        false
+    );
+}
+
+
+/* =========================================================
+   DRAW REPORTS SCREEN
+   ========================================================= */
+
+void GUI::drawReportsScreen(HDC deviceContext)
+{
+    drawText(
+        deviceContext,
+        "Daily Sales Report",
+        250,
+        175,
+        500,
+        35,
+        GUI_TEXT,
+        20,
+        true
+    );
+
+    drawText(
+        deviceContext,
+        "Sales performance for the last 7 days.",
+        250,
+        210,
+        700,
+        25,
+        GUI_GRAY,
+        11,
+        false
+    );
+
+
+    int tableLeft = 250;
+    int tableTop = 255;
+
+    int dateWidth = 220;
+    int countWidth = 180;
+    int incomeWidth = 220;
+
+    int totalWidth =
+        dateWidth +
+        countWidth +
+        incomeWidth;
+
+
+    /* Table Header */
+
+    drawFilledRect(
+        deviceContext,
+        tableLeft,
+        tableTop,
+        tableLeft + totalWidth,
+        tableTop + 42,
+        GUI_PRIMARY
+    );
+
+
+    drawText(
+        deviceContext,
+        "Date",
+        tableLeft + 15,
+        tableTop + 10,
+        dateWidth - 20,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Number of Sales",
+        tableLeft + dateWidth + 15,
+        tableTop + 10,
+        countWidth - 20,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Daily Income",
+        tableLeft +
+        dateWidth +
+        countWidth +
+        15,
+        tableTop + 10,
+        incomeWidth - 20,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    if (saleManager == NULL)
+    {
+        return;
+    }
+
+
+    time_t currentTime =
+        time(NULL);
+
+
+    int rowTop =
+        tableTop + 42;
+
+
+    double sevenDayTotal =
+        0.0;
+
+
+    for (int i = 0; i < 7; i++)
+    {
+        time_t dayTime =
+            currentTime -
+            static_cast<time_t>(i) *
+            24 *
+            60 *
+            60;
+
+
+        tm* day =
+            localtime(&dayTime);
+
+
+        if (day == NULL)
+        {
+            continue;
+        }
+
+
+        char dateBuffer[20];
+
+
+        sprintf(
+            dateBuffer,
+            "%04d-%02d-%02d",
+            day->tm_year + 1900,
+            day->tm_mon + 1,
+            day->tm_mday
+        );
+
+
+        string date =
+            dateBuffer;
+
+
+        int salesCount =
+            saleManager->countDailySales(
+                date
+            );
+
+
+        double income =
+            saleManager->calculateDailyIncome(
+                date
+            );
+
+
+        sevenDayTotal +=
+            income;
+
+
+        COLORREF rowColor =
+            (i % 2 == 0)
+            ? GUI_WHITE
+            : RGB(248, 250, 253);
+
+
+        drawFilledRect(
+            deviceContext,
+            tableLeft,
+            rowTop,
+            tableLeft + totalWidth,
+            rowTop + 42,
+            rowColor
+        );
+
+
+        drawText(
+            deviceContext,
+            date.c_str(),
+            tableLeft + 15,
+            rowTop + 10,
+            dateWidth - 20,
+            25,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+
+        stringstream countText;
+
+        countText
+            << salesCount;
+
+
+        drawText(
+            deviceContext,
+            countText.str().c_str(),
+            tableLeft +
+            dateWidth +
+            15,
+            rowTop + 10,
+            countWidth - 20,
+            25,
+            GUI_TEXT,
+            10,
+            false
+        );
+
+
+        stringstream incomeText;
+
+        incomeText
+            << fixed
+            << setprecision(2)
+            << "Rs. "
+            << income;
+
+
+        drawText(
+            deviceContext,
+            incomeText.str().c_str(),
+            tableLeft +
+            dateWidth +
+            countWidth +
+            15,
+            rowTop + 10,
+            incomeWidth - 20,
+            25,
+            GUI_GREEN,
+            10,
+            true
+        );
+
+
+        rowTop += 42;
+    }
+
+
+    /* Seven-day total */
+
+    drawCard(
+        deviceContext,
+        250,
+        610,
+        870,
+        690,
+        GUI_WHITE
+    );
+
+
+    stringstream totalText;
+
+    totalText
+        << "7-Day Total Income: Rs. "
+        << fixed
+        << setprecision(2)
+        << sevenDayTotal;
+
+
+    drawText(
+        deviceContext,
+        totalText.str().c_str(),
+        275,
+        630,
+        560,
+        30,
+        GUI_PRIMARY,
+        14,
+        true
+    );
+}
+
+
+/* =========================================================
+   DRAW ALERTS SCREEN
+   ========================================================= */
+
+void GUI::drawAlerts(HDC deviceContext)
+{
+    drawText(
+        deviceContext,
+        "Inventory Alerts",
+        250,
+        175,
+        450,
+        35,
+        GUI_TEXT,
+        20,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Low-stock and expiry alerts requiring attention.",
+        250,
+        210,
+        700,
+        25,
+        GUI_GRAY,
+        11,
+        false
+    );
+
+
+    /* =====================================================
+       LOW STOCK TABLE
+       ===================================================== */
+
+    drawText(
+        deviceContext,
+        "Low Stock Medicines",
+        250,
+        255,
+        350,
+        30,
+        GUI_ORANGE,
+        16,
+        true
+    );
+
+
+    int tableLeft = 250;
+    int tableTop = 295;
+
+
+    int idWidth = 70;
+    int nameWidth = 180;
+    int categoryWidth = 150;
+    int quantityWidth = 100;
+
+
+    int totalWidth =
+        idWidth +
+        nameWidth +
+        categoryWidth +
+        quantityWidth;
+
+
+    drawFilledRect(
+        deviceContext,
+        tableLeft,
+        tableTop,
+        tableLeft + totalWidth,
+        tableTop + 40,
+        GUI_ORANGE
+    );
+
+
+    drawText(
+        deviceContext,
+        "ID",
+        tableLeft + 10,
+        tableTop + 8,
+        idWidth - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Medicine",
+        tableLeft + idWidth + 10,
+        tableTop + 8,
+        nameWidth - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Category",
+        tableLeft +
+        idWidth +
+        nameWidth +
+        10,
+        tableTop + 8,
+        categoryWidth - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Quantity",
+        tableLeft +
+        idWidth +
+        nameWidth +
+        categoryWidth +
+        10,
+        tableTop + 8,
+        quantityWidth - 15,
+        25,
+        GUI_WHITE,
+        10,
+        true
+    );
+
+
+    int rowTop =
+        tableTop + 40;
+
+
+    if (medicineManager != NULL)
+    {
+        for (
+            int i = 0;
+            i < medicineManager->getCount();
+            i++
+        )
+        {
+            Medicine* medicine =
+                medicineManager->getMedicineAt(i);
+
+
+            if (medicine == NULL)
+            {
+                continue;
+            }
+
+
+            if (medicine->getQuantity() > 10)
+            {
+                continue;
+            }
+
+
+            COLORREF rowColor =
+                (i % 2 == 0)
+                ? GUI_WHITE
+                : RGB(255, 249, 240);
+
+
+            drawFilledRect(
+                deviceContext,
+                tableLeft,
+                rowTop,
+                tableLeft + totalWidth,
+                rowTop + 38,
+                rowColor
+            );
+
+
+            stringstream idText;
+            idText
+                << medicine->getMedicineID();
+
+
+            stringstream quantityText;
+            quantityText
+                << medicine->getQuantity();
+
+
+            drawText(
+                deviceContext,
+                idText.str().c_str(),
+                tableLeft + 10,
+                rowTop + 8,
+                idWidth - 15,
+                22,
+                GUI_TEXT,
+                10,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                medicine->getName().c_str(),
+                tableLeft +
+                idWidth +
+                10,
+                rowTop + 8,
+                nameWidth - 15,
+                22,
+                GUI_TEXT,
+                10,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                medicine->getCategory().c_str(),
+                tableLeft +
+                idWidth +
+                nameWidth +
+                10,
+                rowTop + 8,
+                categoryWidth - 15,
+                22,
+                GUI_TEXT,
+                10,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                quantityText.str().c_str(),
+                tableLeft +
+                idWidth +
+                nameWidth +
+                categoryWidth +
+                10,
+                rowTop + 8,
+                quantityWidth - 15,
+                22,
+                GUI_RED,
+                10,
+                true
+            );
+
+
+            rowTop += 38;
+        }
+    }
+
+
+    /* =====================================================
+       EXPIRY ALERTS
+       ===================================================== */
+
+    int expiryTop =
+        520;
+
+
+    drawText(
+        deviceContext,
+        "Expired / Near-Expiry Medicines",
+        250,
+        expiryTop,
+        450,
+        30,
+        GUI_RED,
+        16,
+        true
+    );
+
+
+    int expiryTableTop =
+        expiryTop + 40;
+
+
+    int expiryIDWidth = 60;
+    int expiryNameWidth = 150;
+    int expiryCategoryWidth = 130;
+    int expiryQuantityWidth = 90;
+    int expiryDateWidth = 130;
+    int expiryStatusWidth = 150;
+
+
+    int expiryTotalWidth =
+        expiryIDWidth +
+        expiryNameWidth +
+        expiryCategoryWidth +
+        expiryQuantityWidth +
+        expiryDateWidth +
+        expiryStatusWidth;
+
+
+    drawFilledRect(
+        deviceContext,
+        tableLeft,
+        expiryTableTop,
+        tableLeft + expiryTotalWidth,
+        expiryTableTop + 40,
+        GUI_RED
+    );
+
+
+    drawText(
+        deviceContext,
+        "ID",
+        tableLeft + 8,
+        expiryTableTop + 8,
+        expiryIDWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Medicine",
+        tableLeft +
+        expiryIDWidth +
+        8,
+        expiryTableTop + 8,
+        expiryNameWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Category",
+        tableLeft +
+        expiryIDWidth +
+        expiryNameWidth +
+        8,
+        expiryTableTop + 8,
+        expiryCategoryWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Qty",
+        tableLeft +
+        expiryIDWidth +
+        expiryNameWidth +
+        expiryCategoryWidth +
+        8,
+        expiryTableTop + 8,
+        expiryQuantityWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Expiry",
+        tableLeft +
+        expiryIDWidth +
+        expiryNameWidth +
+        expiryCategoryWidth +
+        expiryQuantityWidth +
+        8,
+        expiryTableTop + 8,
+        expiryDateWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    drawText(
+        deviceContext,
+        "Status",
+        tableLeft +
+        expiryIDWidth +
+        expiryNameWidth +
+        expiryCategoryWidth +
+        expiryQuantityWidth +
+        expiryDateWidth +
+        8,
+        expiryTableTop + 8,
+        expiryStatusWidth - 10,
+        25,
+        GUI_WHITE,
+        9,
+        true
+    );
+
+
+    /*
+       The existing MedicineManager already provides the
+       expiry-alert count. Here we display the detailed
+       medicine information using the stored expiry date.
+    */
+
+    int expiryRow =
+        expiryTableTop + 40;
+
+
+    if (medicineManager != NULL)
+    {
+        time_t currentTime =
+            time(NULL);
+
+
+        for (
+            int i = 0;
+            i < medicineManager->getCount();
+            i++
+        )
+        {
+            Medicine* medicine =
+                medicineManager->getMedicineAt(i);
+
+
+            if (medicine == NULL)
+            {
+                continue;
+            }
+
+
+            string expiryDate =
+                medicine->getExpiryDate();
+
+
+            int year = 0;
+int month = 0;
+int day = 0;
+
+/*
+   Accept common date formats:
+
+   YYYY-MM-DD
+   YYYY/MM/DD
+   DD-MM-YYYY
+   DD/MM/YYYY
+*/
+
+int first = 0;
+int second = 0;
+int third = 0;
+
+char separator1 = '-';
+char separator2 = '-';
+
+if (sscanf(
+        expiryDate.c_str(),
+        "%d%c%d%c%d",
+        &first,
+        &separator1,
+        &second,
+        &separator2,
+        &third
+    ) == 5)
+{
+    if (first >= 1900)
+    {
+        // YYYY-MM-DD
+        year = first;
+        month = second;
+        day = third;
+    }
+    else if (third >= 1900)
+    {
+        // DD-MM-YYYY
+        day = first;
+        month = second;
+        year = third;
+    }
+}
+
+            if (year <= 0 ||
+                month <= 0 ||
+                day <= 0)
+            {
+                continue;
+            }
+
+
+            tm expiryTime;
+
+            ZeroMemory(
+                &expiryTime,
+                sizeof(expiryTime)
+            );
+
+
+            expiryTime.tm_year =
+                year - 1900;
+
+            expiryTime.tm_mon =
+                month - 1;
+
+            expiryTime.tm_mday =
+                day;
+
+            expiryTime.tm_hour =
+                12;
+
+
+            time_t expiryTimestamp =
+                mktime(&expiryTime);
+
+
+            if (expiryTimestamp == -1)
+            {
+                continue;
+            }
+
+
+            double difference =
+                difftime(
+                    expiryTimestamp,
+                    currentTime
+                );
+
+
+            int daysRemaining =
+                static_cast<int>(
+                    difference /
+                    (24.0 * 60.0 * 60.0)
+                );
+
+
+            bool expired =
+                daysRemaining < 0;
+
+
+            bool nearExpiry =
+                !expired &&
+                daysRemaining <= 30;
+
+
+            if (!expired &&
+                !nearExpiry)
+            {
+                continue;
+            }
+
+
+            string status;
+
+
+            if (expired)
+            {
+                status = "EXPIRED";
+            }
+            else
+            {
+                status = "NEAR EXPIRY";
+            }
+
+
+            COLORREF rowColor =
+                expired
+                ? RGB(255, 240, 240)
+                : RGB(255, 248, 235);
+
+
+            drawFilledRect(
+                deviceContext,
+                tableLeft,
+                expiryRow,
+                tableLeft + expiryTotalWidth,
+                expiryRow + 38,
+                rowColor
+            );
+
+
+            stringstream idText;
+
+            idText
+                << medicine->getMedicineID();
+
+
+            stringstream quantityText;
+
+            quantityText
+                << medicine->getQuantity();
+
+
+            drawText(
+                deviceContext,
+                idText.str().c_str(),
+                tableLeft + 8,
+                expiryRow + 8,
+                expiryIDWidth - 10,
+                22,
+                GUI_TEXT,
+                9,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                medicine->getName().c_str(),
+                tableLeft +
+                expiryIDWidth +
+                8,
+                expiryRow + 8,
+                expiryNameWidth - 10,
+                22,
+                GUI_TEXT,
+                9,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                medicine->getCategory().c_str(),
+                tableLeft +
+                expiryIDWidth +
+                expiryNameWidth +
+                8,
+                expiryRow + 8,
+                expiryCategoryWidth - 10,
+                22,
+                GUI_TEXT,
+                9,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                quantityText.str().c_str(),
+                tableLeft +
+                expiryIDWidth +
+                expiryNameWidth +
+                expiryCategoryWidth +
+                8,
+                expiryRow + 8,
+                expiryQuantityWidth - 10,
+                22,
+                GUI_TEXT,
+                9,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                expiryDate.c_str(),
+                tableLeft +
+                expiryIDWidth +
+                expiryNameWidth +
+                expiryCategoryWidth +
+                expiryQuantityWidth +
+                8,
+                expiryRow + 8,
+                expiryDateWidth - 10,
+                22,
+                GUI_TEXT,
+                9,
+                false
+            );
+
+
+            drawText(
+                deviceContext,
+                status.c_str(),
+                tableLeft +
+                expiryIDWidth +
+                expiryNameWidth +
+                expiryCategoryWidth +
+                expiryQuantityWidth +
+                expiryDateWidth +
+                8,
+                expiryRow + 8,
+                expiryStatusWidth - 10,
+                22,
+                expired
+                ? GUI_RED
+                : GUI_ORANGE,
+                9,
+                true
+            );
+
+
+            expiryRow += 38;
+
+
+            /*
+               Keep the screen inside the visible area.
+               The full information remains available through
+               the alert summary/count and table.
+            */
+            if (expiryRow > 700)
+            {
+                break;
+            }
+        }
+    }
+}
+/* =========================================================
+   DRAW BASIC CARD
+   ========================================================= */
+
+static void drawCard(
+    HDC dc,
+    int left,
+    int top,
+    int right,
+    int bottom,
+    COLORREF color
+)
+{
+    HBRUSH brush =
+        CreateSolidBrush(color);
+
+    RECT rect;
+    rect.left = left;
+    rect.top = top;
+    rect.right = right;
+    rect.bottom = bottom;
+
+    FillRect(
+        dc,
+        &rect,
+        brush
+    );
+
+    DeleteObject(brush);
+
+    HPEN pen =
+        CreatePen(
+            PS_SOLID,
+            1,
+            GUI_LIGHTGRAY
+        );
+
+    HPEN oldPen =
+        reinterpret_cast<HPEN>(
+            SelectObject(dc, pen)
+        );
+
+    HBRUSH oldBrush =
+        reinterpret_cast<HBRUSH>(
+            SelectObject(dc, GetStockObject(NULL_BRUSH))
+        );
+
+    Rectangle(
+        dc,
+        left,
+        top,
+        right,
+        bottom
+    );
+
+    SelectObject(
+        dc,
+        oldBrush
+    );
+
+    SelectObject(
+        dc,
+        oldPen
+    );
+
+    DeleteObject(pen);
+}
+
+
+/* =========================================================
+   DRAW FILLED RECTANGLE
+   ========================================================= */
+
+static void drawFilledRect(
+    HDC dc,
+    int left,
+    int top,
+    int right,
+    int bottom,
+    COLORREF color
+)
+{
+    HBRUSH brush =
+        CreateSolidBrush(color);
+
+    RECT rect;
+
+    rect.left = left;
+    rect.top = top;
+    rect.right = right;
+    rect.bottom = bottom;
+
+    FillRect(
+        dc,
+        &rect,
+        brush
+    );
+
+    DeleteObject(brush);
+}
+
+
+/* =========================================================
+   DRAW TEXT
+   ========================================================= */
+
+static void drawText(
+    HDC dc,
+    const char* text,
+    int x,
+    int y,
+    int width,
+    int height,
+    COLORREF color,
+    int size,
+    bool bold
+)
+{
+    HFONT font =
+        CreateFontA(
+            -size,
+            0,
+            0,
+            0,
+            bold ? FW_BOLD : FW_NORMAL,
+            FALSE,
+            FALSE,
+            FALSE,
+            ANSI_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,
+            DEFAULT_PITCH | FF_SWISS,
+            "Segoe UI"
+        );
+
+    HFONT oldFont =
+        reinterpret_cast<HFONT>(
+            SelectObject(dc, font)
+        );
+
+    SetTextColor(
+        dc,
+        color
+    );
+
+    SetBkMode(
+        dc,
+        TRANSPARENT
+    );
+
+    RECT rect;
+
+    rect.left = x;
+    rect.top = y;
+    rect.right = x + width;
+    rect.bottom = y + height;
+
+    DrawTextA(
+        dc,
+        text,
+        -1,
+        &rect,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE
+    );
+
+    SelectObject(
+        dc,
+        oldFont
+    );
+
+    DeleteObject(font);
+}
+
+
+/* =========================================================
+   SHOW MESSAGE
+   ========================================================= */
+
+void GUI::showMessage(
+    string title,
+    string message
+)
+{
+    MessageBoxA(
+        mainWindow,
+        message.c_str(),
+        title.c_str(),
+        MB_OK | MB_ICONINFORMATION
+    );
+}
+
+
+/* =========================================================
+   STRING TO INTEGER
+   ========================================================= */
+
+int GUI::stringToInteger(string value)
+{
+    if (value.empty())
+    {
+        return 0;
+    }
+
+    return atoi(
+        value.c_str()
+    );
+}
+
+
+/* =========================================================
+   STRING TO DOUBLE
+   ========================================================= */
+
+double GUI::stringToDouble(string value)
+{
+    if (value.empty())
+    {
+        return 0.0;
+    }
+
+    return atof(
+        value.c_str()
+    );
+}
+
+
+/* =========================================================
+   CURRENT DATE
+   ========================================================= */
+
+string GUI::getCurrentDate()
+{
+    time_t currentTime =
+        time(NULL);
+
+    tm* localTime =
+        localtime(&currentTime);
+
+    if (localTime == NULL)
+    {
+        return "";
+    }
+
+    char dateBuffer[20];
+
+    sprintf(
+        dateBuffer,
+        "%04d-%02d-%02d",
+        localTime->tm_year + 1900,
+        localTime->tm_mon + 1,
+        localTime->tm_mday
+    );
+
+    return string(dateBuffer);
+}
+
+
+/* =========================================================
+   MEDICINE ADD WINDOW
+   ========================================================= */
+
+void GUI::addMedicineWindow()
+{
+    openMedicineForm(
+        MED_FORM_ADD
+    );
+}
+
+
+/* =========================================================
+   MEDICINE UPDATE WINDOW
+   ========================================================= */
+
+void GUI::updateMedicineWindow()
+{
+    openMedicineForm(
+        MED_FORM_UPDATE
+    );
+}
+
+
+/* =========================================================
+   MEDICINE DELETE WINDOW
+   ========================================================= */
+
+void GUI::deleteMedicineWindow()
+{
+    openMedicineForm(
+        MED_FORM_DELETE
+    );
+}
+
+
+/* =========================================================
+   MEDICINE SEARCH WINDOW
+   ========================================================= */
+
+void GUI::searchMedicineWindow()
+{
+    openMedicineForm(
+        MED_FORM_SEARCH
+    );
+}
+
+
+/* =========================================================
+   OPEN MEDICINE FORM
+   ========================================================= */
+
+static void openMedicineForm(int mode)
+{
+    HINSTANCE instance =
+        GetModuleHandleA(NULL);
+
+    static bool registered = false;
+
+    if (!registered)
+    {
+        WNDCLASSA formClass;
+
+        ZeroMemory(
+            &formClass,
+            sizeof(formClass)
+        );
+
+        formClass.lpfnWndProc =
+            MedicineFormProcedure;
+
+        formClass.hInstance =
+            instance;
+
+        formClass.lpszClassName =
+            "PharmaCareMedicineForm";
+
+        formClass.hCursor =
+            LoadCursor(
+                NULL,
+                IDC_ARROW
+            );
+
+        formClass.hbrBackground =
+            CreateSolidBrush(
+                GUI_BACKGROUND
+            );
+
+        RegisterClassA(
+            &formClass
+        );
+
+        registered = true;
+    }
+
+
+    string title;
+
+    if (mode == MED_FORM_ADD)
+    {
+        title = "Add Medicine";
+    }
+    else if (mode == MED_FORM_UPDATE)
+    {
+        title = "Update Medicine";
+    }
+    else if (mode == MED_FORM_DELETE)
+    {
+        title = "Delete Medicine";
+    }
+    else
+    {
+        title = "Search Medicine";
+    }
+
+
+    g_medicineForm.mode = mode;
+
+    HWND formWindow =
+        CreateWindowExA(
+            WS_EX_DLGMODALFRAME,
+            "PharmaCareMedicineForm",
+            title.c_str(),
+            WS_OVERLAPPED |
+            WS_CAPTION |
+            WS_SYSMENU,
+            360,
+            100,
+            620,
+            560,
+            NULL,
+            NULL,
+            instance,
+            NULL
+        );
+
+    g_medicineForm.window =
+        formWindow;
+
+    ShowWindow(
+        formWindow,
+        SW_SHOW
+    );
+
+    UpdateWindow(
+        formWindow
+    );
+}
+
+
+/* =========================================================
+   CREATE FORM LABEL
+   ========================================================= */
+
+static HWND createFormLabel(
+    HWND parent,
+    const char* text,
+    int x,
+    int y,
+    int width,
+    int height
+)
+{
+    HWND label =
+        CreateWindowExA(
+            0,
+            "STATIC",
+            text,
+            WS_CHILD | WS_VISIBLE,
+            x,
+            y,
+            width,
+            height,
+            parent,
+            NULL,
+            GetModuleHandleA(NULL),
+            NULL
+        );
+
+    setFont(
+        label,
+        10,
+        true
+    );
+
+    return label;
+}
+
+
+/* =========================================================
+   CREATE FORM EDIT
+   ========================================================= */
+
+static HWND createFormEdit(
+    HWND parent,
+    int x,
+    int y,
+    int width,
+    int height
+)
+{
+    HWND edit =
+        CreateWindowExA(
+            WS_EX_CLIENTEDGE,
+            "EDIT",
+            "",
+            WS_CHILD |
+            WS_VISIBLE |
+            ES_AUTOHSCROLL,
+            x,
+            y,
+            width,
+            height,
+            parent,
+            NULL,
+            GetModuleHandleA(NULL),
+            NULL
+        );
+
+    setFont(
+        edit,
+        10,
+        false
+    );
+
+    return edit;
+}
+
+
+/* =========================================================
+   MEDICINE FORM PROCEDURE
+   ========================================================= */
+
+static LRESULT CALLBACK MedicineFormProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    switch (message)
+    {
+        case WM_CREATE:
+        {
+            int mode =
+                g_medicineForm.mode;
+
+
+            createFormLabel(
+                window,
+                "Medicine ID",
+                45,
+                35,
+                180,
+                25
+            );
+
+            g_medicineForm.idEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    30,
+                    300,
+                    32
+                );
+
+
+            createFormLabel(
+                window,
+                "Medicine Name",
+                45,
+                85,
+                180,
+                25
+            );
+
+            g_medicineForm.nameEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    80,
+                    300,
+                    32
+                );
+
+
+            createFormLabel(
+                window,
+                "Category",
+                45,
+                135,
+                180,
+                25
+            );
+
+            g_medicineForm.categoryEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    130,
+                    300,
+                    32
+                );
+
+
+            createFormLabel(
+                window,
+                "Price",
+                45,
+                185,
+                180,
+                25
+            );
+
+            g_medicineForm.priceEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    180,
+                    300,
+                    32
+                );
+
+
+            createFormLabel(
+                window,
+                "Quantity",
+                45,
+                235,
+                180,
+                25
+            );
+
+            g_medicineForm.quantityEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    230,
+                    300,
+                    32
+                );
+
+
+            createFormLabel(
+                window,
+                "Expiry Date",
+                45,
+                285,
+                180,
+                25
+            );
+
+            g_medicineForm.expiryEdit =
+                createFormEdit(
+                    window,
+                    235,
+                    280,
+                    300,
+                    32
+                );
+
+
+            /* Action button */
+
+            const char* buttonText =
+                "Submit";
+
+            if (mode == MED_FORM_ADD)
+            {
+                buttonText = "Add Medicine";
+            }
+            else if (mode == MED_FORM_UPDATE)
+            {
+                buttonText = "Update Medicine";
+            }
+            else if (mode == MED_FORM_DELETE)
+            {
+                buttonText = "Delete Medicine";
+            }
+            else
+            {
+                buttonText = "Search Medicine";
+            }
+
+            g_medicineForm.actionButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    buttonText,
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    235,
+                    340,
+                    180,
+                    42,
+                    window,
+                    reinterpret_cast<HMENU>(
+                        static_cast<INT_PTR>(5001)
+                    ),
+                    GetModuleHandleA(NULL),
+                    NULL
+                );
+
+            setFont(
+                g_medicineForm.actionButton,
+                10,
+                true
+            );
+
+
+            /* Close button */
+
+            HWND closeButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Close",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    425,
+                    340,
+                    110,
+                    42,
+                    window,
+                    reinterpret_cast<HMENU>(
+                        static_cast<INT_PTR>(5002)
+                    ),
+                    GetModuleHandleA(NULL),
+                    NULL
+                );
+
+            setFont(
+                closeButton,
+                10,
+                true
+            );
+
+
+            /* Result area */
+
+            g_medicineForm.resultLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    SS_LEFT,
+                    45,
+                    410,
+                    490,
+                    90,
+                    window,
+                    NULL,
+                    GetModuleHandleA(NULL),
+                    NULL
+                );
+
+            setFont(
+                g_medicineForm.resultLabel,
+                10,
+                false
+            );
+
+            return 0;
+        }
+
+
+        case WM_COMMAND:
+        {
+            int id =
+                LOWORD(wParam);
+
+
+            /* Close */
+
+            if (id == 5002)
+            {
+                DestroyWindow(
+                    window
+                );
+
+                return 0;
+            }
+
+
+            /* Submit */
+
+            if (id == 5001)
+            {
+                char idBuffer[100];
+                char nameBuffer[200];
+                char categoryBuffer[200];
+                char priceBuffer[100];
+                char quantityBuffer[100];
+                char expiryBuffer[100];
+
+                GetWindowTextA(
+                    g_medicineForm.idEdit,
+                    idBuffer,
+                    sizeof(idBuffer)
+                );
+
+                GetWindowTextA(
+                    g_medicineForm.nameEdit,
+                    nameBuffer,
+                    sizeof(nameBuffer)
+                );
+
+                GetWindowTextA(
+                    g_medicineForm.categoryEdit,
+                    categoryBuffer,
+                    sizeof(categoryBuffer)
+                );
+
+                GetWindowTextA(
+                    g_medicineForm.priceEdit,
+                    priceBuffer,
+                    sizeof(priceBuffer)
+                );
+
+                GetWindowTextA(
+                    g_medicineForm.quantityEdit,
+                    quantityBuffer,
+                    sizeof(quantityBuffer)
+                );
+
+                GetWindowTextA(
+                    g_medicineForm.expiryEdit,
+                    expiryBuffer,
+                    sizeof(expiryBuffer)
+                );
+
+
+                int medicineID =
+                    atoi(idBuffer);
+
+                string name =
+                    nameBuffer;
+
+                string category =
+                    categoryBuffer;
+
+                double price =
+                    atof(priceBuffer);
+
+                int quantity =
+                    atoi(quantityBuffer);
+
+                string expiry =
+                    expiryBuffer;
+
+
+                /* ---------------- ADD ---------------- */
+
+                if (g_medicineForm.mode ==
+                    MED_FORM_ADD)
+                {
+                    if (medicineID <= 0 ||
+                        name.empty() ||
+                        category.empty() ||
+                        price <= 0 ||
+                        quantity < 0 ||
+                        expiry.empty())
+                    {
+                        MessageBoxA(
+                            window,
+                            "Please fill all medicine fields correctly.",
+                            "Validation",
+                            MB_OK | MB_ICONWARNING
+                        );
+
+                        return 0;
+                    }
+
+
+                    Medicine medicine(
+                        medicineID,
+                        name,
+                        category,
+                        price,
+                        quantity,
+                        expiry
+                    );
+
+
+                    bool success =
+                        g_medicineManager->
+                        addMedicine(medicine);
+
+
+                    if (success)
+                    {
+                        g_dataManager->
+                            saveAll(
+                                *g_medicineManager,
+                                *g_customerManager,
+                                *g_billManager,
+                                *g_saleManager
+                            );
+
+                        MessageBoxA(
+                            window,
+                            "Medicine added successfully.",
+                            "PharmaCare",
+                            MB_OK | MB_ICONINFORMATION
+                        );
+
+                        DestroyWindow(
+                            window
+                        );
+
+                        InvalidateRect(
+                            NULL,
+                            NULL,
+                            TRUE
+                        );
+                    }
+                    else
+                    {
+                        MessageBoxA(
+                            window,
+                            "Medicine could not be added. ID may already exist or storage is full.",
+                            "Add Medicine",
+                            MB_OK | MB_ICONWARNING
+                        );
+                    }
+
+                    return 0;
+                }
+
+
+                /* ---------------- UPDATE ---------------- */
+
+                if (g_medicineForm.mode ==
+                    MED_FORM_UPDATE)
+                {
+                    if (medicineID <= 0 ||
+                        name.empty() ||
+                        category.empty() ||
+                        price <= 0 ||
+                        quantity < 0 ||
+                        expiry.empty())
+                    {
+                        MessageBoxA(
+                            window,
+                            "Please fill all medicine fields correctly.",
+                            "Validation",
+                            MB_OK | MB_ICONWARNING
+                        );
+
+                        return 0;
+                    }
+
+
+                    bool success =
+                        g_medicineManager->
+                        updateMedicine(
+                            medicineID,
+                            name,
+                            category,
+                            price,
+                            quantity,
+                            expiry
+                        );
+
+
+                    if (success)
+                    {
+                        g_dataManager->
+                            saveAll(
+                                *g_medicineManager,
+                                *g_customerManager,
+                                *g_billManager,
+                                *g_saleManager
+                            );
+
+                        MessageBoxA(
+                            window,
+                            "Medicine updated successfully.",
+                            "PharmaCare",
+                            MB_OK | MB_ICONINFORMATION
+                        );
+
+                        DestroyWindow(
+                            window
+                        );
+
+                        InvalidateRect(
+                            NULL,
+                            NULL,
+                            TRUE
+                        );
+                    }
+                    else
+                    {
+                        MessageBoxA(
+                            window,
+                            "Medicine ID was not found.",
+                            "Update Medicine",
+                            MB_OK | MB_ICONWARNING
+                        );
+                    }
+
+                    return 0;
+                }
+
+
+                /* ---------------- DELETE ---------------- */
+
+                if (g_medicineForm.mode ==
+                    MED_FORM_DELETE)
+                {
+                    if (medicineID <= 0)
+                    {
+                        MessageBoxA(
+                            window,
+                            "Please enter a valid Medicine ID.",
+                            "Validation",
+                            MB_OK | MB_ICONWARNING
+                        );
+
+                        return 0;
+                    }
+
+
+                    bool success =
+                        g_medicineManager->
+                        deleteMedicine(
+                            medicineID
+                        );
+
+
+                    if (success)
+                    {
+                        g_dataManager->
+                            saveAll(
+                                *g_medicineManager,
+                                *g_customerManager,
+                                *g_billManager,
+                                *g_saleManager
+                            );
+
+                        MessageBoxA(
+                            window,
+                            "Medicine deleted successfully.",
+                            "PharmaCare",
+                            MB_OK | MB_ICONINFORMATION
+                        );
+
+                        DestroyWindow(
+                            window
+                        );
+
+                        InvalidateRect(
+                            NULL,
+                            NULL,
+                            TRUE
+                        );
+                    }
+                    else
+                    {
+                        MessageBoxA(
+                            window,
+                            "Medicine ID was not found.",
+                            "Delete Medicine",
+                            MB_OK | MB_ICONWARNING
+                        );
+                    }
+
+                    return 0;
+                }
+
+
+                /* ---------------- SEARCH ---------------- */
+
+                if (g_medicineForm.mode ==
+                    MED_FORM_SEARCH)
+                {
+                    Medicine* medicine =
+                        NULL;
+
+                    if (medicineID > 0)
+                    {
+                        medicine =
+                            g_medicineManager->
+                            searchMedicine(
+                                medicineID
+                            );
+                    }
+                    else if (!name.empty())
+                    {
+                        medicine =
+                            g_medicineManager->
+                            searchMedicine(
+                                name
+                            );
+                    }
+
+
+                    if (medicine == NULL)
+                    {
+                        SetWindowTextA(
+                            g_medicineForm.resultLabel,
+                            "No medicine found."
+                        );
+
+                        return 0;
+                    }
+
+
+                    stringstream result;
+
+                    result
+                        << "Medicine Found\n"
+                        << "ID: "
+                        << medicine->getMedicineID()
+                        << "\nName: "
+                        << medicine->getName()
+                        << "\nCategory: "
+                        << medicine->getCategory()
+                        << "\nPrice: Rs. "
+                        << fixed
+                        << setprecision(2)
+                        << medicine->getPrice()
+                        << "\nQuantity: "
+                        << medicine->getQuantity()
+                        << "\nExpiry: "
+                        << medicine->getExpiryDate();
+
+
+                    SetWindowTextA(
+                        g_medicineForm.resultLabel,
+                        result.str().c_str()
+                    );
+
+                    return 0;
+                }
+            }
+
+            break;
+        }
+
+
+        case WM_CLOSE:
+        {
+            DestroyWindow(
+                window
+            );
+
+            return 0;
+        }
+    }
+
+    return DefWindowProcA(
+        window,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+/* =========================================================
+   SHOW CURRENT BILL
+   ========================================================= */
+
+void GUI::showCurrentBill()
+{
+    /*
+       Full printable bill viewer is implemented
+       in Part 3.
+    */
+}
+
+
+/* =========================================================
+   SAVE DATA
+   ========================================================= */
+
+void GUI::saveData()
+{
+    if (dataManager != NULL &&
+        medicineManager != NULL &&
+        customerManager != NULL &&
+        billManager != NULL &&
+        saleManager != NULL)
+    {
+        dataManager->saveAll(
+            *medicineManager,
+            *customerManager,
+            *billManager,
+            *saleManager
+        );
+    }
+}
+// ============================================================
+// PHARMACARE GUI - PART 2
+// CUSTOMER MODULE
+// ============================================================
+
+static HWND customerFormWindow = NULL;
+
+static HWND customerIdBox = NULL;
+static HWND customerNameBox = NULL;
+static HWND customerPhoneBox = NULL;
+static HWND customerAddressBox = NULL;
+
+static int customerFormMode = 0;
+// 1 = Add
+// 2 = Update
+// 3 = Delete
+// 4 = Search
+
+
+// ------------------------------------------------------------
+// Helper: Get text from a Windows control
+// ------------------------------------------------------------
+
+static string getCustomerText(HWND control)
+{
+    char buffer[500];
+
+    GetWindowTextA(
+        control,
+        buffer,
+        sizeof(buffer)
+    );
+
+    return string(buffer);
+}
+
+
+// ------------------------------------------------------------
+// Helper: Create a customer form control
+// ------------------------------------------------------------
+
+static HWND createCustomerEdit(
+    HWND parent,
+    int x,
+    int y,
+    int width,
+    int height,
+    string value
+)
+{
+    HWND editBox =
+        CreateWindowExA(
+            WS_EX_CLIENTEDGE,
+            "EDIT",
+            value.c_str(),
+            WS_CHILD |
+            WS_VISIBLE |
+            WS_BORDER |
+            ES_AUTOHSCROLL,
+            x,
+            y,
+            width,
+            height,
+            parent,
+            NULL,
+            GetModuleHandle(NULL),
+            NULL
+        );
+
+    SendMessageA(
+        editBox,
+        WM_SETFONT,
+        (WPARAM)GetStockObject(DEFAULT_GUI_FONT),
+        TRUE
+    );
+
+    return editBox;
+}
+
+
+// ------------------------------------------------------------
+// Customer Form Procedure
+// ------------------------------------------------------------
+
+static LRESULT CALLBACK CustomerFormProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    switch (message)
+    {
+        case WM_CREATE:
+        {
+            HINSTANCE instance =
+                GetModuleHandle(NULL);
+
+            HFONT font =
+                (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+
+
+            // -----------------------------
+            // Title
+            // -----------------------------
+
+            HWND title =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Customer Information",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    SS_LEFT,
+                    35,
+                    25,
+                    400,
+                    30,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                title,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // -----------------------------
+            // Customer ID
+            // -----------------------------
+
+            HWND idLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Customer ID",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    40,
+                    85,
+                    150,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                idLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            customerIdBox =
+                createCustomerEdit(
+                    window,
+                    200,
+                    80,
+                    300,
+                    30,
+                    ""
+                );
+
+
+            // -----------------------------
+            // Customer Name
+            // -----------------------------
+
+            HWND nameLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Customer Name",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    40,
+                    135,
+                    150,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                nameLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            customerNameBox =
+                createCustomerEdit(
+                    window,
+                    200,
+                    130,
+                    300,
+                    30,
+                    ""
+                );
+
+
+            // -----------------------------
+            // Phone
+            // -----------------------------
+
+            HWND phoneLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Phone",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    40,
+                    185,
+                    150,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                phoneLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            customerPhoneBox =
+                createCustomerEdit(
+                    window,
+                    200,
+                    180,
+                    300,
+                    30,
+                    ""
+                );
+
+
+            // -----------------------------
+            // Address
+            // -----------------------------
+
+            HWND addressLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Address",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    40,
+                    235,
+                    150,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                addressLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            customerAddressBox =
+                CreateWindowExA(
+                    WS_EX_CLIENTEDGE,
+                    "EDIT",
+                    "",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    WS_BORDER |
+                    ES_MULTILINE |
+                    ES_AUTOVSCROLL |
+                    WS_VSCROLL,
+                    200,
+                    230,
+                    300,
+                    80,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                customerAddressBox,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // -----------------------------
+            // Button
+            // -----------------------------
+
+            string buttonText;
+
+            if (customerFormMode == 1)
+                buttonText = "Add Customer";
+            else if (customerFormMode == 2)
+                buttonText = "Update Customer";
+            else if (customerFormMode == 3)
+                buttonText = "Delete Customer";
+            else
+                buttonText = "Search Customer";
+
+
+            HWND actionButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    buttonText.c_str(),
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    200,
+                    345,
+                    140,
+                    40,
+                    window,
+                    (HMENU)1001,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                actionButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            HWND cancelButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Close",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    360,
+                    345,
+                    140,
+                    40,
+                    window,
+                    (HMENU)1002,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                cancelButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            return 0;
+        }
+
+
+        case WM_COMMAND:
+        {
+            int controlID =
+                LOWORD(wParam);
+
+
+            // -----------------------------
+            // Action Button
+            // -----------------------------
+
+            if (controlID == 1001)
+            {
+                int id =
+                    0;
+
+                string idText =
+                    getCustomerText(customerIdBox);
+
+                string name =
+                    getCustomerText(customerNameBox);
+
+                string phone =
+                    getCustomerText(customerPhoneBox);
+
+                string address =
+                    getCustomerText(customerAddressBox);
+
+
+                if (idText.empty())
+                {
+                    MessageBoxA(
+                        window,
+                        "Please enter Customer ID.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                id =
+                    atoi(idText.c_str());
+
+
+                if (id <= 0)
+                {
+                    MessageBoxA(
+                        window,
+                        "Customer ID must be greater than zero.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                // -----------------------------
+                // ADD
+                // -----------------------------
+
+                if (customerFormMode == 1)
+                {
+                    if (name.empty())
+                    {
+                        MessageBoxA(
+                            window,
+                            "Please enter customer name.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONWARNING
+                        );
+
+                        return 0;
+                    }
+
+
+                    Customer customer(
+                        id,
+                        name,
+                        phone,
+                        address
+                    );
+
+
+                    if (g_customerManager != NULL &&
+                        g_customerManager->addCustomer(customer))
+                    {
+                        MessageBoxA(
+                            window,
+                            "Customer added successfully.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONINFORMATION
+                        );
+
+                        DestroyWindow(window);
+                    }
+                    else
+                    {
+                        MessageBoxA(
+                            window,
+                            "Customer could not be added.\n"
+                            "The ID may already exist or storage is full.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONERROR
+                        );
+                    }
+                }
+
+
+                // -----------------------------
+                // UPDATE
+                // -----------------------------
+
+                else if (customerFormMode == 2)
+                {
+                    if (name.empty())
+                    {
+                        MessageBoxA(
+                            window,
+                            "Please enter customer name.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONWARNING
+                        );
+
+                        return 0;
+                    }
+
+
+                    if (g_customerManager != NULL &&
+                        g_customerManager->updateCustomer(
+                            id,
+                            name,
+                            phone,
+                            address
+                        ))
+                    {
+                        MessageBoxA(
+                            window,
+                            "Customer updated successfully.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONINFORMATION
+                        );
+
+                        DestroyWindow(window);
+                    }
+                    else
+                    {
+                        MessageBoxA(
+                            window,
+                            "Customer not found.",
+                            "PharmaCare",
+                            MB_OK |
+                            MB_ICONERROR
+                        );
+                    }
+                }
+
+
+                // -----------------------------
+                // DELETE
+                // -----------------------------
+
+                else if (customerFormMode == 3)
+                {
+                    int answer =
+                        MessageBoxA(
+                            window,
+                            "Are you sure you want to delete this customer?",
+                            "Confirm Delete",
+                            MB_YESNO |
+                            MB_ICONQUESTION
+                        );
+
+
+                    if (answer == IDYES)
+                    {
+                        if (g_customerManager != NULL &&
+                            g_customerManager->deleteCustomer(id))
+                        {
+                            MessageBoxA(
+                                window,
+                                "Customer deleted successfully.",
+                                "PharmaCare",
+                                MB_OK |
+                                MB_ICONINFORMATION
+                            );
+
+                            DestroyWindow(window);
+                        }
+                        else
+                        {
+                            MessageBoxA(
+                                window,
+                                "Customer not found.",
+                                "PharmaCare",
+                                MB_OK |
+                                MB_ICONERROR
+                            );
+                        }
+                    }
+                }
+
+
+                // -----------------------------
+                // SEARCH
+                // -----------------------------
+
+                else if (customerFormMode == 4)
+                {
+                    if (g_customerManager != NULL)
+                    {
+                        Customer* customer =
+                            g_customerManager->searchCustomer(id);
+
+
+                        if (customer != NULL)
+                        {
+                            string result =
+                                "Customer Found\n\n"
+                                "Customer ID: " +
+                                to_string(customer->getCustomerID()) +
+                                "\n"
+                                "Name: " +
+                                customer->getName() +
+                                "\n"
+                                "Phone: " +
+                                customer->getPhone() +
+                                "\n"
+                                "Address: " +
+                                customer->getAddress();
+
+
+                            MessageBoxA(
+                                window,
+                                result.c_str(),
+                                "Customer Details",
+                                MB_OK |
+                                MB_ICONINFORMATION
+                            );
+                        }
+                        else
+                        {
+                            MessageBoxA(
+                                window,
+                                "Customer not found.",
+                                "PharmaCare",
+                                MB_OK |
+                                MB_ICONWARNING
+                            );
+                        }
+                    }
+                }
+
+
+                return 0;
+            }
+
+
+            // -----------------------------
+            // Close Button
+            // -----------------------------
+
+            if (controlID == 1002)
+            {
+                DestroyWindow(window);
+
+                return 0;
+            }
+
+
+            break;
+        }
+
+
+        case WM_CLOSE:
+        {
+            DestroyWindow(window);
+
+            return 0;
+        }
+
+
+        case WM_DESTROY:
+        {
+            customerFormWindow = NULL;
+
+            customerIdBox = NULL;
+            customerNameBox = NULL;
+            customerPhoneBox = NULL;
+            customerAddressBox = NULL;
+
+            return 0;
+        }
+    }
+
+
+    return DefWindowProcA(
+        window,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+// ------------------------------------------------------------
+// Open Customer Form
+// ------------------------------------------------------------
+
+static void openCustomerForm(int mode)
+{
+    customerFormMode =
+        mode;
+
+
+    HINSTANCE instance =
+        GetModuleHandle(NULL);
+
+
+    WNDCLASSA formClass;
+
+    ZeroMemory(
+        &formClass,
+        sizeof(formClass)
+    );
+
+
+    formClass.lpfnWndProc =
+        CustomerFormProcedure;
+
+    formClass.hInstance =
+        instance;
+
+    formClass.lpszClassName =
+        "PharmaCareCustomerForm";
+
+    formClass.hCursor =
+        LoadCursor(
+            NULL,
+            IDC_ARROW
+        );
+
+    formClass.hbrBackground =
+        (HBRUSH)(COLOR_WINDOW + 1);
+
+
+    RegisterClassA(
+        &formClass
+    );
+
+
+    string title;
+
+
+    if (mode == 1)
+        title = "PharmaCare - Add Customer";
+    else if (mode == 2)
+        title = "PharmaCare - Update Customer";
+    else if (mode == 3)
+        title = "PharmaCare - Delete Customer";
+    else
+        title = "PharmaCare - Search Customer";
+
+
+    customerFormWindow =
+        CreateWindowExA(
+            WS_EX_DLGMODALFRAME,
+            "PharmaCareCustomerForm",
+            title.c_str(),
+            WS_OVERLAPPED |
+            WS_CAPTION |
+            WS_SYSMENU,
+            400,
+            120,
+            560,
+            470,
+            NULL,
+            NULL,
+            instance,
+            NULL
+        );
+
+
+    if (customerFormWindow == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Unable to open customer form.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    ShowWindow(
+        customerFormWindow,
+        SW_SHOW
+    );
+
+    UpdateWindow(
+        customerFormWindow
+    );
+
+
+    EnableWindow(
+        g_gui != NULL ? GetParent(customerFormWindow) : NULL,
+        FALSE
+    );
+
+
+    MSG message;
+
+
+    while (
+        customerFormWindow != NULL &&
+        GetMessageA(
+            &message,
+            NULL,
+            0,
+            0
+        ) > 0
+    )
+    {
+        TranslateMessage(
+            &message
+        );
+
+        DispatchMessageA(
+            &message
+        );
+    }
+
+
+    if (g_gui != NULL)
+    {
+        // Refresh the main interface.
+        // NULL is intentionally used because GUI::mainWindow
+        // is private and this function is outside the class.
+        InvalidateRect(
+            NULL,
+            NULL,
+            TRUE
+        );
+    }
+}
+
+
+// ------------------------------------------------------------
+// GUI Member Functions
+// ------------------------------------------------------------
+
+void GUI::addCustomerWindow()
+{
+    openCustomerForm(1);
+}
+
+
+void GUI::updateCustomerWindow()
+{
+    openCustomerForm(2);
+}
+
+
+void GUI::deleteCustomerWindow()
+{
+    openCustomerForm(3);
+}
+
+
+void GUI::searchCustomerWindow()
+{
+    openCustomerForm(4);
+}
+
+
+// ============================================================
+// END OF PART 2
+// ============================================================
+// ============================================================
+// PHARMACARE GUI - PART 3
+// BILLING MODULE
+// ============================================================
+
+static HWND billingFormWindow = NULL;
+
+static HWND billCustomerIdBox = NULL;
+static HWND billMedicineIdBox = NULL;
+static HWND billQuantityBox = NULL;
+
+static HWND billCustomerNameBox = NULL;
+static HWND billDateBox = NULL;
+
+static HWND billItemsList = NULL;
+static HWND billTotalLabel = NULL;
+
+static Bill* activeBill = NULL;
+
+
+// ------------------------------------------------------------
+// Get text from billing control
+// ------------------------------------------------------------
+
+static string getBillingText(HWND control)
+{
+    char buffer[500];
+
+    GetWindowTextA(
+        control,
+        buffer,
+        sizeof(buffer)
+    );
+
+    return string(buffer);
+}
+
+
+// ------------------------------------------------------------
+// Set text in billing control
+// ------------------------------------------------------------
+
+static void setBillingText(
+    HWND control,
+    string value
+)
+{
+    if (control != NULL)
+    {
+        SetWindowTextA(
+            control,
+            value.c_str()
+        );
+    }
+}
+
+
+// ------------------------------------------------------------
+// Create billing edit box
+// ------------------------------------------------------------
+
+static HWND createBillingEdit(
+    HWND parent,
+    int x,
+    int y,
+    int width,
+    int height,
+    string value
+)
+{
+    HWND editBox =
+        CreateWindowExA(
+            WS_EX_CLIENTEDGE,
+            "EDIT",
+            value.c_str(),
+            WS_CHILD |
+            WS_VISIBLE |
+            WS_BORDER |
+            ES_AUTOHSCROLL,
+            x,
+            y,
+            width,
+            height,
+            parent,
+            NULL,
+            GetModuleHandle(NULL),
+            NULL
+        );
+
+    SendMessageA(
+        editBox,
+        WM_SETFONT,
+        (WPARAM)GetStockObject(DEFAULT_GUI_FONT),
+        TRUE
+    );
+
+    return editBox;
+}
+
+
+// ------------------------------------------------------------
+// Add text to bill items list
+// ------------------------------------------------------------
+
+static void addBillListText(
+    string text
+)
+{
+    if (billItemsList == NULL)
+        return;
+
+    SendMessageA(
+        billItemsList,
+        LB_ADDSTRING,
+        0,
+        (LPARAM)text.c_str()
+    );
+}
+
+
+// ------------------------------------------------------------
+// Refresh current bill display
+// ------------------------------------------------------------
+
+static void refreshBillDisplay()
+{
+    if (billItemsList == NULL ||
+        activeBill == NULL)
+    {
+        return;
+    }
+
+    SendMessageA(
+        billItemsList,
+        LB_RESETCONTENT,
+        0,
+        0
+    );
+
+
+    BillItem* current =
+        activeBill->getHead();
+
+
+    while (current != NULL)
+    {
+        Medicine medicine =
+            current->getMedicine();
+
+        string row =
+            "ID: " +
+            to_string(
+                medicine.getMedicineID()
+            ) +
+            "    " +
+            medicine.getName() +
+            "    Qty: " +
+            to_string(
+                current->getQuantity()
+            ) +
+            "    Price: " +
+            to_string(
+                medicine.getPrice()
+            ) +
+            "    Amount: " +
+            to_string(
+                current->getAmount()
+            );
+
+
+        addBillListText(
+            row
+        );
+
+
+        current =
+            current->next;
+    }
+
+
+    string total =
+        "Grand Total: Rs. " +
+        to_string(
+            activeBill->calculateTotal()
+        );
+
+
+    setBillingText(
+        billTotalLabel,
+        total
+    );
+}
+
+
+// ------------------------------------------------------------
+// Billing form procedure
+// ------------------------------------------------------------
+
+static LRESULT CALLBACK BillingFormProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    switch (message)
+    {
+        case WM_CREATE:
+        {
+            HINSTANCE instance =
+                GetModuleHandle(NULL);
+
+            HFONT font =
+                (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+
+
+            // ----------------------------------------
+            // Title
+            // ----------------------------------------
+
+            HWND title =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "PharmaCare - New Bill",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    SS_LEFT,
+                    30,
+                    20,
+                    500,
+                    30,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                title,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Customer ID
+            // ----------------------------------------
+
+            HWND customerIDLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Customer ID",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    70,
+                    120,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                customerIDLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            billCustomerIdBox =
+                createBillingEdit(
+                    window,
+                    150,
+                    65,
+                    180,
+                    30,
+                    ""
+                );
+
+
+            // ----------------------------------------
+            // Customer Name
+            // ----------------------------------------
+
+            HWND customerNameLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Customer Name",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    350,
+                    70,
+                    120,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                customerNameLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            billCustomerNameBox =
+                createBillingEdit(
+                    window,
+                    470,
+                    65,
+                    180,
+                    30,
+                    ""
+                );
+
+
+            // ----------------------------------------
+            // Date
+            // ----------------------------------------
+
+            HWND dateLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Date",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    115,
+                    120,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                dateLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            string today =
+                "Today";
+
+
+            billDateBox =
+                createBillingEdit(
+                    window,
+                    150,
+                    110,
+                    180,
+                    30,
+                    today
+                );
+
+
+            // ----------------------------------------
+            // Medicine ID
+            // ----------------------------------------
+
+            HWND medicineIDLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Medicine ID",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    170,
+                    120,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                medicineIDLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            billMedicineIdBox =
+                createBillingEdit(
+                    window,
+                    150,
+                    165,
+                    180,
+                    30,
+                    ""
+                );
+
+
+            // ----------------------------------------
+            // Quantity
+            // ----------------------------------------
+
+            HWND quantityLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Quantity",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    350,
+                    170,
+                    120,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                quantityLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            billQuantityBox =
+                createBillingEdit(
+                    window,
+                    470,
+                    165,
+                    180,
+                    30,
+                    ""
+                );
+
+
+            // ----------------------------------------
+            // Add Item button
+            // ----------------------------------------
+
+            HWND addItemButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Add Medicine",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    670,
+                    160,
+                    130,
+                    40,
+                    window,
+                    (HMENU)2001,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                addItemButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Items label
+            // ----------------------------------------
+
+            HWND itemsLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Bill Items",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    225,
+                    150,
+                    25,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                itemsLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Bill items list
+            // ----------------------------------------
+
+            billItemsList =
+                CreateWindowExA(
+                    WS_EX_CLIENTEDGE,
+                    "LISTBOX",
+                    "",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    WS_BORDER |
+                    LBS_NOTIFY |
+                    WS_VSCROLL,
+                    30,
+                    255,
+                    770,
+                    190,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                billItemsList,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Grand total
+            // ----------------------------------------
+
+            billTotalLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Grand Total: Rs. 0.00",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    SS_LEFT,
+                    30,
+                    465,
+                    350,
+                    30,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                billTotalLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Generate Bill
+            // ----------------------------------------
+
+            HWND generateButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Generate Bill",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    450,
+                    460,
+                    160,
+                    40,
+                    window,
+                    (HMENU)2002,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                generateButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            // ----------------------------------------
+            // Close
+            // ----------------------------------------
+
+            HWND closeButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Close",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    630,
+                    460,
+                    170,
+                    40,
+                    window,
+                    (HMENU)2003,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                closeButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            refreshBillDisplay();
+
+            return 0;
+        }
+
+
+        case WM_COMMAND:
+        {
+            int controlID =
+                LOWORD(wParam);
+
+
+            // ----------------------------------------
+            // Add Medicine
+            // ----------------------------------------
+
+            if (controlID == 2001)
+            {
+                if (activeBill == NULL)
+                {
+                    MessageBoxA(
+                        window,
+                        "Please create a bill first.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                string medicineIDText =
+                    getBillingText(
+                        billMedicineIdBox
+                    );
+
+                string quantityText =
+                    getBillingText(
+                        billQuantityBox
+                    );
+
+
+                if (medicineIDText.empty() ||
+                    quantityText.empty())
+                {
+                    MessageBoxA(
+                        window,
+                        "Please enter Medicine ID and Quantity.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                int medicineID =
+                    atoi(
+                        medicineIDText.c_str()
+                    );
+
+                int quantity =
+                    atoi(
+                        quantityText.c_str()
+                    );
+
+
+                if (medicineID <= 0 ||
+                    quantity <= 0)
+                {
+                    MessageBoxA(
+                        window,
+                        "Medicine ID and Quantity must be greater than zero.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                if (g_medicineManager == NULL)
+                {
+                    MessageBoxA(
+                        window,
+                        "Medicine manager is unavailable.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONERROR
+                    );
+
+                    return 0;
+                }
+
+
+                Medicine* medicine =
+                    g_medicineManager->searchMedicine(
+                        medicineID
+                    );
+
+
+                if (medicine == NULL)
+                {
+                    MessageBoxA(
+                        window,
+                        "Medicine not found.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                if (medicine->getQuantity() < quantity)
+                {
+                    MessageBoxA(
+                        window,
+                        "Insufficient stock available.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                if (activeBill->addItem(
+                        *medicine,
+                        quantity))
+                {
+                    refreshBillDisplay();
+
+                    setBillingText(
+                        billMedicineIdBox,
+                        ""
+                    );
+
+                    setBillingText(
+                        billQuantityBox,
+                        ""
+                    );
+                }
+                else
+                {
+                    MessageBoxA(
+                        window,
+                        "Unable to add medicine to bill.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONERROR
+                    );
+                }
+
+
+                return 0;
+            }
+
+
+            // ----------------------------------------
+            // Generate Bill
+            // ----------------------------------------
+
+            if (controlID == 2002)
+            {
+                if (activeBill == NULL)
+                {
+                    MessageBoxA(
+                        window,
+                        "No bill has been created.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                if (activeBill->getHead() == NULL)
+                {
+                    MessageBoxA(
+                        window,
+                        "Please add at least one medicine.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONWARNING
+                    );
+
+                    return 0;
+                }
+
+
+                // Reduce stock for every item.
+                BillItem* item =
+                    activeBill->getHead();
+                bool stockUpdated = true;    
+                while (item != NULL)
+                {
+                    Medicine medicine =
+                        item->getMedicine();
+
+
+                    if (g_medicineManager == NULL ||
+                        !g_medicineManager->reduceStock(
+                            medicine.getMedicineID(),
+                            item->getQuantity()))
+                    {
+                        stockUpdated =
+                            false;
+
+                        break;
+                    }
+
+
+                    item =
+                        item->next;
+                }
+
+
+                if (!stockUpdated)
+                {
+                    MessageBoxA(
+                        window,
+                        "Unable to update medicine stock.",
+                        "PharmaCare",
+                        MB_OK |
+                        MB_ICONERROR
+                    );
+
+                    return 0;
+                }
+
+
+                if (g_billManager != NULL)
+{
+    // Add sale record
+    if (g_saleManager != NULL)
+    {
+        g_saleManager->addSale(
+            activeBill->getBillNumber(),
+            activeBill->getDate(),
+            activeBill->getAmount()
+        );
+    }
+
+    // Save all data
+    if (g_dataManager != NULL)
+    {
+        g_dataManager->saveAll(
+            *g_medicineManager,
+            *g_customerManager,
+            *g_billManager,
+            *g_saleManager
+        );
+    }
+
+    MessageBoxA(
+        window,
+        "Bill generated successfully and saved.",
+        "PharmaCare",
+        MB_OK |
+        MB_ICONINFORMATION
+    );
+
+    DestroyWindow(window);
+}
+
+
+                return 0;
+            }
+
+
+            // ----------------------------------------
+            // Close
+            // ----------------------------------------
+
+            if (controlID == 2003)
+            {
+                DestroyWindow(
+                    window
+                );
+
+                return 0;
+            }
+
+
+            break;
+        }
+
+
+        case WM_CLOSE:
+        {
+            DestroyWindow(
+                window
+            );
+
+            return 0;
+        }
+
+
+        case WM_DESTROY:
+        {
+            billingFormWindow = NULL;
+
+            billCustomerIdBox = NULL;
+            billMedicineIdBox = NULL;
+            billQuantityBox = NULL;
+            billCustomerNameBox = NULL;
+            billDateBox = NULL;
+            billItemsList = NULL;
+            billTotalLabel = NULL;
+
+            activeBill = NULL;
+
+            return 0;
+        }
+    }
+
+
+    return DefWindowProcA(
+        window,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+// ------------------------------------------------------------
+// Open New Bill Form
+// ------------------------------------------------------------
+
+void GUI::createNewBill()
+{
+    if (billManager == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Bill manager is unavailable.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    HINSTANCE instance =
+        GetModuleHandle(NULL);
+
+
+    WNDCLASSA formClass;
+
+    ZeroMemory(
+        &formClass,
+        sizeof(formClass)
+    );
+
+
+    formClass.lpfnWndProc =
+        BillingFormProcedure;
+
+    formClass.hInstance =
+        instance;
+
+    formClass.lpszClassName =
+        "PharmaCareBillingForm";
+
+    formClass.hCursor =
+        LoadCursor(
+            NULL,
+            IDC_ARROW
+        );
+
+    formClass.hbrBackground =
+        (HBRUSH)(COLOR_WINDOW + 1);
+
+
+    RegisterClassA(
+        &formClass
+    );
+
+
+    string customerIDText;
+
+
+    // Ask customer ID through the complete form.
+    // The actual bill object is created after the form
+    // receives the customer information.
+
+
+    int customerID =
+        0;
+
+
+    char inputBuffer[100];
+
+    ZeroMemory(
+        inputBuffer,
+        sizeof(inputBuffer)
+    );
+
+
+    // Create a temporary complete billing form.
+    // Customer information is entered directly in the form.
+
+
+    string date =
+        getCurrentDate();
+
+
+    // A temporary customer ID of zero is replaced when
+    // the user starts the actual billing workflow.
+
+
+    activeBill =
+        billManager->createBill(
+            0,
+            "",
+            date
+        );
+
+    currentBill = activeBill;
+    if (activeBill == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Unable to create a new bill.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    billingFormWindow =
+        CreateWindowExA(
+            WS_EX_DLGMODALFRAME,
+            "PharmaCareBillingForm",
+            "PharmaCare - New Bill",
+            WS_OVERLAPPED |
+            WS_CAPTION |
+            WS_SYSMENU,
+            250,
+            80,
+            850,
+            570,
+            NULL,
+            NULL,
+            instance,
+            NULL
+        );
+
+
+    if (billingFormWindow == NULL)
+    {
+        delete activeBill;
+        activeBill = NULL;
+
+        MessageBoxA(
+            NULL,
+            "Unable to open billing window.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    ShowWindow(
+        billingFormWindow,
+        SW_SHOW
+    );
+
+    UpdateWindow(
+        billingFormWindow
+    );
+
+
+    MSG message;
+
+
+    while (
+        billingFormWindow != NULL &&
+        GetMessageA(
+            &message,
+            NULL,
+            0,
+            0
+        ) > 0
+    )
+    {
+        TranslateMessage(
+            &message
+        );
+
+        DispatchMessageA(
+            &message
+        );
+    }
+    InvalidateRect(
+    NULL,
+    NULL,
+    TRUE
+);
+}
+
+
+// ------------------------------------------------------------
+// Add medicine to current bill
+// ------------------------------------------------------------
+
+void GUI::addMedicineToCurrentBill()
+{
+    if (currentBill == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "No active bill.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONWARNING
+        );
+
+        return;
+    }
+}
+
+// ============================================================
+// END OF PART 3
+// ============================================================
+// ============================================================
+// PHARMACARE GUI - PART 4A
+// SALES HISTORY + DAILY SALES
+// ============================================================
+
+static HWND salesWindow = NULL;
+static HWND salesList = NULL;
+static HWND salesTotalLabel = NULL;
+
+
+// ------------------------------------------------------------
+// Add text to sales list
+// ------------------------------------------------------------
+
+static void addSalesListText(string text)
+{
+    if (salesList == NULL)
+        return;
+
+    SendMessageA(
+        salesList,
+        LB_ADDSTRING,
+        0,
+        (LPARAM)text.c_str()
+    );
+}
+
+
+// ------------------------------------------------------------
+// Sales Window Procedure
+// ------------------------------------------------------------
+
+static LRESULT CALLBACK SalesWindowProcedure(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    switch (message)
+    {
+        case WM_CREATE:
+        {
+            HINSTANCE instance =
+                GetModuleHandle(NULL);
+
+            HFONT font =
+                (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+
+
+            HWND title =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "PharmaCare - Sales History",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    20,
+                    500,
+                    30,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                title,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            salesList =
+                CreateWindowExA(
+                    WS_EX_CLIENTEDGE,
+                    "LISTBOX",
+                    "",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    WS_BORDER |
+                    WS_VSCROLL |
+                    LBS_NOINTEGRALHEIGHT,
+                    30,
+                    70,
+                    760,
+                    360,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                salesList,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            salesTotalLabel =
+                CreateWindowExA(
+                    0,
+                    "STATIC",
+                    "Total Income: Rs. 0.00",
+                    WS_CHILD |
+                    WS_VISIBLE,
+                    30,
+                    450,
+                    350,
+                    30,
+                    window,
+                    NULL,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                salesTotalLabel,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            HWND closeButton =
+                CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    "Close",
+                    WS_CHILD |
+                    WS_VISIBLE |
+                    BS_PUSHBUTTON,
+                    650,
+                    445,
+                    140,
+                    40,
+                    window,
+                    (HMENU)4001,
+                    instance,
+                    NULL
+                );
+
+            SendMessageA(
+                closeButton,
+                WM_SETFONT,
+                (WPARAM)font,
+                TRUE
+            );
+
+
+            return 0;
+        }
+
+
+        case WM_COMMAND:
+        {
+            if (LOWORD(wParam) == 4001)
+            {
+                DestroyWindow(window);
+
+                return 0;
+            }
+
+            break;
+        }
+
+
+        case WM_CLOSE:
+        {
+            DestroyWindow(window);
+
+            return 0;
+        }
+
+
+        case WM_DESTROY:
+        {
+            salesWindow = NULL;
+            salesList = NULL;
+            salesTotalLabel = NULL;
+
+            return 0;
+        }
+    }
+
+
+    return DefWindowProcA(
+        window,
+        message,
+        wParam,
+        lParam
+    );
+}
+
+
+// ------------------------------------------------------------
+// Show Sales History
+// ------------------------------------------------------------
+
+void GUI::showSalesHistory()
+{
+    if (saleManager == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Sales manager is unavailable.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    HINSTANCE instance =
+        GetModuleHandle(NULL);
+
+
+    WNDCLASSA salesClass;
+
+    ZeroMemory(
+        &salesClass,
+        sizeof(salesClass)
+    );
+
+
+    salesClass.lpfnWndProc =
+        SalesWindowProcedure;
+
+    salesClass.hInstance =
+        instance;
+
+    salesClass.lpszClassName =
+        "PharmaCareSalesWindow";
+
+    salesClass.hCursor =
+        LoadCursor(
+            NULL,
+            IDC_ARROW
+        );
+
+    salesClass.hbrBackground =
+        (HBRUSH)(COLOR_WINDOW + 1);
+
+
+    RegisterClassA(
+        &salesClass
+    );
+
+
+    salesWindow =
+        CreateWindowExA(
+            WS_EX_DLGMODALFRAME,
+            "PharmaCareSalesWindow",
+            "PharmaCare - Sales History",
+            WS_OVERLAPPED |
+            WS_CAPTION |
+            WS_SYSMENU,
+            300,
+            100,
+            850,
+            550,
+            NULL,
+            NULL,
+            instance,
+            NULL
+        );
+
+
+    if (salesWindow == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Unable to open Sales History.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    ShowWindow(
+        salesWindow,
+        SW_SHOW
+    );
+
+    UpdateWindow(
+        salesWindow
+    );
+
+
+    // --------------------------------------------------------
+    // Display sales
+    // --------------------------------------------------------
+
+    int salesCount =
+        saleManager->getCount();
+
+
+    double totalIncome =
+        0.0;
+
+
+    for (int i = 0; i < salesCount; i++)
+    {
+        Sale* sale =
+            saleManager->getSaleAt(i);
+
+
+        if (sale == NULL)
+            continue;
+
+
+        string row =
+            "Sale ID: " +
+            to_string(
+                sale->getSaleID()
+            ) +
+            "    Bill No: " +
+            to_string(
+                sale->getBillNumber()
+            ) +
+            "    Date: " +
+            sale->getDate() +
+            "    Amount: Rs. " +
+            to_string(
+                sale->getAmount()
+            );
+
+
+        addSalesListText(
+            row
+        );
+
+
+        totalIncome +=
+            sale->getAmount();
+    }
+
+
+    string totalText =
+        "Total Income: Rs. " +
+        to_string(
+            totalIncome
+        );
+
+
+    SetWindowTextA(
+        salesTotalLabel,
+        totalText.c_str()
+    );
+
+
+    MSG message;
+
+
+    while (
+        salesWindow != NULL &&
+        GetMessageA(
+            &message,
+            NULL,
+            0,
+            0
+        ) > 0
+    )
+    {
+        TranslateMessage(
+            &message
+        );
+
+        DispatchMessageA(
+            &message
+        );
+    }
+
+
+    InvalidateRect(
+        NULL,
+        NULL,
+        TRUE
+    );
+}
+
+
+// ------------------------------------------------------------
+// Show Daily Sales
+// ------------------------------------------------------------
+
+void GUI::showDailySales()
+{
+    if (saleManager == NULL)
+    {
+        MessageBoxA(
+            NULL,
+            "Sales manager is unavailable.",
+            "PharmaCare",
+            MB_OK |
+            MB_ICONERROR
+        );
+
+        return;
+    }
+
+
+    string today =
+        getCurrentDate();
+
+
+    int count =
+        saleManager->countDailySales(
+            today
+        );
+
+
+    double income =
+        saleManager->calculateDailyIncome(
+            today
+        );
+
+
+    string message =
+        "Daily Sales\n\n"
+        "Date: " +
+        today +
+        "\n"
+        "Number of Sales: " +
+        to_string(count) +
+        "\n"
+        "Daily Income: Rs. " +
+        to_string(income);
+
+
+    MessageBoxA(
+        NULL,
+        message.c_str(),
+        "PharmaCare - Daily Sales",
+        MB_OK |
+        MB_ICONINFORMATION
+    );
+}
+
+
+// ============================================================
+// END OF PART 4A
+// ============================================================

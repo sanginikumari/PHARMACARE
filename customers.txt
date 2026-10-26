@@ -1,0 +1,4 @@
+1|Sangini|8675431223|Bihar,Patna
+2|Harman kaur|9675421380|Amritsar,Taran Taran
+3|Shristi|9243256754|Punjab,Amritsar
+4|Aman|3214564334|Punjab,Amritsar,Golden gate

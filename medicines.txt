@@ -1,0 +1,4 @@
+1|paracetamol|capsule|5|20|12-7-2027
+2|combiflam|capsule|11|22|3-3-2028
+3|Nrtz|tablet|13|2|23-5-2027
+4|ornida zole|tablet|21|35|30-12-2026
